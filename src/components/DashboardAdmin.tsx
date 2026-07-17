@@ -4,15 +4,41 @@
  */
 
 import React, { useMemo, useState, useEffect, useRef } from 'react';
+import CropEditorModal from './CropEditorModal';
+import { Scissors } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Flyer, Offer, Market, CanonicalProduct, Category } from '../types';
+import { Flyer, Offer, Market, CanonicalProduct, Category, AuditLog, Backup } from '../types';
 import { 
   MARKETS as INITIAL_MARKETS, 
   CANONICAL_PRODUCTS as INITIAL_PRODUCTS, 
   CATEGORIES as INITIAL_CATEGORIES 
 } from '../data';
 import { db, auth, reportFirestoreError, OperationType, sanitizeFlyer, sanitizeOffer } from '../lib/firebase';
+import { useQueryClient } from '@tanstack/react-query';
+import { FirestoreRepository } from '../services/FirestoreRepository';
 import { APP_CONFIG } from '../config/app';
+import { 
+  useMarkets, 
+  useProducts, 
+  useCategories, 
+  useBrands, 
+  useAuditLogs, 
+  useBackups, 
+  useSystemSettings,
+  useMutateMarket,
+  useDeleteMarket,
+  useMutateFlyer,
+  useMutateOffer,
+  useMutateProduct,
+  useDeleteProduct,
+  useMutateCategory,
+  useDeleteCategory,
+  useMutateBrand,
+  useDeleteBrand,
+  useAddAuditLog,
+  useCreateBackup,
+  useDeleteBackup
+} from '../hooks/useQueries';
 import { 
   collection, 
   doc, 
@@ -63,12 +89,13 @@ import {
   ShieldCheck,
   Image as ImageIcon,
   Copy
-} from 'lucide-react';
+, Menu} from 'lucide-react';
 import DashboardUpload from './DashboardUpload';
 
 interface Props {
   flyers: Flyer[];
   offers: Offer[];
+  loading?: boolean;
   onUpdateOffer: (offer: Offer) => void;
   onAddFlyerAndOffers: (flyer: Flyer, offers: Offer[]) => void;
 }
@@ -154,25 +181,23 @@ function OfferCropImage({ offer, parentFlyer }: CropProps) {
   );
 }
 
-interface AuditLog {
-  id: string;
-  user: string;
-  action: string;
-  details: string;
-  timestamp: string;
-}
 
-interface Backup {
-  id: string;
-  date: string;
-  size: string;
-  recordCount: number;
-  version: string;
-}
 
-export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFlyerAndOffers }: Props) {
+
+
+export const formatLocalDate = (dateStr: string) => {
+  if (!dateStr) return 'N/A';
+  const parts = dateStr.split('T')[0].split('-');
+  if (parts.length === 3) {
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  }
+  return dateStr;
+};
+export default function DashboardAdmin({ flyers, offers, loading = false, onUpdateOffer, onAddFlyerAndOffers }: Props) {
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [activeSubTab, setActiveSubTab] = useState<string>('dashboard');
   const [viewOriginalQuality, setViewOriginalQuality] = useState<boolean>(false);
+  const [editingCropOffer, setEditingCropOffer] = useState<Offer | null>(null);
   const [cropSearch, setCropSearch] = useState('');
   const [cropMarket, setCropMarket] = useState('');
   const [flyerFilterMarket, setFlyerFilterMarket] = useState('');
@@ -252,119 +277,74 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
     return () => unsubscribe();
   }, []);
 
-  // --- Dynamic State loaded from Firestore or Fallbacks ---
-  const [markets, setMarkets] = useState<Market[]>(INITIAL_MARKETS);
-  const [products, setProducts] = useState<CanonicalProduct[]>(INITIAL_PRODUCTS);
-  const [categories, setCategories] = useState<Category[]>(INITIAL_CATEGORIES);
-  const [brands, setBrands] = useState<string[]>([]);
-  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
-  const [backups, setBackups] = useState<Backup[]>([]);
+  // --- Dynamic State loaded from Firestore via Repository ---
+  const { data: markets = [], isLoading: loadingMarkets } = useMarkets();
+  const { data: products = [], isLoading: loadingProducts } = useProducts();
+  const { data: categories = [], isLoading: loadingCategories } = useCategories();
+  const { data: brands = [] } = useBrands();
+  const { data: auditLogs = [] } = useAuditLogs();
+  const { data: backups = [] } = useBackups();
+  const { data: systemSettings } = useSystemSettings();
+
+  const { mutateAsync: addAuditLog } = useAddAuditLog();
+  const queryClient = useQueryClient();
+
+  const loadingDb = loadingMarkets || loadingProducts || loadingCategories || loading;
 
   // System Config State
   const [ocrConfidenceThreshold, setOcrConfidenceThreshold] = useState<number>(85);
-  const [geminiModel, setGeminiModel] = useState<string>('gemini-3.5-flash');
+  const [geminiModel, setGeminiModel] = useState<string>(localStorage.getItem('gemini_model') || 'gemini-3.5-flash');
   const [storageLimit, setStorageLimit] = useState<string>('50 MB');
   const [apiLimitRate, setApiLimitRate] = useState<number>(100);
 
-  // Sync Markets, Products, Categories, Brands, Logs, Backups from Firestore
+  // Loaded AI models registry
+  const [availableModels, setAvailableModels] = useState<any[]>([]);
+  const [loadingModels, setLoadingModels] = useState<boolean>(false);
+
   useEffect(() => {
-    // 1. Markets
-    const unsubscribeMarkets = onSnapshot(collection(db, 'markets'), (snapshot) => {
-      const list: Market[] = [];
-      if (!snapshot.empty) {
-        snapshot.forEach(doc => list.push(doc.data() as Market));
+    const fetchModels = async () => {
+      setLoadingModels(true);
+      try {
+        const res = await fetch('/api/settings/gemini-models');
+        const data = await res.json();
+        if (data && data.models) {
+          setAvailableModels(data.models);
+        }
+      } catch (err) {
+        console.error('Error fetching available models:', err);
+      } finally {
+        setLoadingModels(false);
       }
-      setMarkets(list);
-    }, (err) => {
-      reportFirestoreError(err, OperationType.GET, 'markets');
-    });
-
-    // 2. Canonical Products
-    const unsubscribeProducts = onSnapshot(collection(db, 'canonical_products'), (snapshot) => {
-      const list: CanonicalProduct[] = [];
-      if (!snapshot.empty) {
-        snapshot.forEach(doc => list.push(doc.data() as CanonicalProduct));
-      }
-      setProducts(list);
-    }, (err) => {
-      reportFirestoreError(err, OperationType.GET, 'canonical_products');
-    });
-
-    // 3. Categories
-    const unsubscribeCategories = onSnapshot(collection(db, 'categories'), (snapshot) => {
-      const list: Category[] = [];
-      if (!snapshot.empty) {
-        snapshot.forEach(doc => list.push(doc.data() as Category));
-      }
-      setCategories(list);
-    }, (err) => {
-      reportFirestoreError(err, OperationType.GET, 'categories');
-    });
-
-    // 4. Brands
-    const unsubscribeBrands = onSnapshot(collection(db, 'brands_list'), (snapshot) => {
-      const list: string[] = [];
-      if (!snapshot.empty) {
-        snapshot.forEach(doc => list.push(doc.id));
-      }
-      setBrands(list);
-    }, (err) => {
-      reportFirestoreError(err, OperationType.GET, 'brands_list');
-    });
-
-    // 5. Audit Logs
-    const qLogs = query(collection(db, 'audit_logs'), orderBy('timestamp', 'desc'));
-    const unsubscribeLogs = onSnapshot(qLogs, (snapshot) => {
-      const list: AuditLog[] = [];
-      snapshot.forEach(doc => {
-        list.push({ id: doc.id, ...doc.data() } as AuditLog);
-      });
-      setAuditLogs(list);
-    }, (err) => {
-      reportFirestoreError(err, OperationType.GET, 'audit_logs');
-    });
-
-    // 6. Backups
-    const qBackups = query(collection(db, 'backups'), orderBy('date', 'desc'));
-    const unsubscribeBackups = onSnapshot(qBackups, (snapshot) => {
-      const list: Backup[] = [];
-      snapshot.forEach(doc => {
-        list.push({ id: doc.id, ...doc.data() } as Backup);
-      });
-      setBackups(list);
-    }, (err) => {
-      reportFirestoreError(err, OperationType.GET, 'backups');
-    });
-
-    return () => {
-      unsubscribeMarkets();
-      unsubscribeProducts();
-      unsubscribeCategories();
-      unsubscribeBrands();
-      unsubscribeLogs();
-      unsubscribeBackups();
     };
+    fetchModels();
   }, []);
+
+  // Fetch System Settings from React Query
+  useEffect(() => {
+    if (systemSettings) {
+      if (systemSettings.ocrConfidenceThreshold !== undefined) setOcrConfidenceThreshold(systemSettings.ocrConfidenceThreshold);
+      if (systemSettings.geminiModel !== undefined) {
+        setGeminiModel(systemSettings.geminiModel);
+        localStorage.setItem('gemini_model', systemSettings.geminiModel);
+      }
+      if (systemSettings.storageLimit !== undefined) setStorageLimit(systemSettings.storageLimit);
+      if (systemSettings.apiLimitRate !== undefined) setApiLimitRate(systemSettings.apiLimitRate);
+    }
+  }, [systemSettings]);
 
   // Audit logger helper
   const logAction = async (action: string, details: string) => {
     try {
-      await addDoc(collection(db, 'audit_logs'), {
+      await addAuditLog({
         user: userEmail,
         action,
         details,
         timestamp: new Date().toISOString()
       });
-    } catch (err) {
-      console.error("Failed to log audit:", err);
-      reportFirestoreError(err, OperationType.CREATE, 'audit_logs');
+    } catch (e) {
+      console.warn("Could not write audit log", e);
     }
   };
-
-  // Log on initial render of Admin Panel
-  useEffect(() => {
-    logAction('LOGIN', 'Administrador acessou o painel de gerenciamento /admin');
-  }, []);
 
   // Sub-navigation tabs list
   const subTabs = [
@@ -414,6 +394,9 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
       ? Math.round(offers.reduce((acc, o) => acc + o.confidence, 0) / offers.length)
       : 92;
 
+    const ocrFailures = flyers.filter(f => f.status === 'error').length;
+    const processingQueue = flyers.filter(f => f.status === 'pending_ocr').length;
+
     return {
       marketsCount: markets.length,
       flyersCount: flyers.length,
@@ -422,8 +405,8 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
       processedOCR,
       pendingReviewCount,
       validCount,
-      ocrFailures: 2,
-      processingQueue: 0,
+      ocrFailures,
+      processingQueue,
       storageUsed,
       avgConfidence
     };
@@ -449,7 +432,7 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
 
   const handleSaveMarket = async () => {
     if (!marketForm.name) {
-      showError('Nome fantasia da loja é um campo obrigatório.');
+      showError('Nome fantasia do estabelecimento é um campo obrigatório.');
       return;
     }
     try {
@@ -459,23 +442,25 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
         id: targetId, 
         cityId: 'sao-gotardo' 
       } as Market;
-      await setDoc(doc(db, 'markets', targetId), payload);
-      logAction(editingMarketId ? 'MARKET_UPDATE' : 'MARKET_CREATE', `Administrador ${editingMarketId ? 'atualizou' : 'criou'} mercado ${payload.name}`);
-      showSuccess(`Mercado "${payload.name}" gravado com sucesso!`);
+      await FirestoreRepository.saveMarket(targetId, payload);
+      queryClient.invalidateQueries({ queryKey: ['markets'] });
+      logAction(editingMarketId ? 'MARKET_UPDATE' : 'MARKET_CREATE', `Administrador ${editingMarketId ? 'atualizou' : 'criou'} estabelecimento ${payload.name}`);
+      showSuccess(`Estabelecimento "${payload.name}" gravado com sucesso!`);
       setIsMarketModalOpen(false);
     } catch (err: any) {
-      showError(`Erro ao gravar mercado: ${err.message}`);
+      showError(`Erro ao gravar estabelecimento: ${err.message}`);
     }
   };
 
   const handleDeleteMarket = async (id: string, name: string) => {
-    if (window.confirm(`Tem certeza que deseja remover o mercado "${name}"? Esta ação removerá o cadastro da loja do sistema.`)) {
+    if (window.confirm(`Tem certeza que deseja remover o estabelecimento "${name}"? Esta ação removerá o cadastro do estabelecimento do sistema.`)) {
       try {
-        await deleteDoc(doc(db, 'markets', id));
-        logAction('MARKET_DELETE', `Administrador removeu mercado ${name}`);
-        showSuccess(`Mercado "${name}" removido.`);
+        await FirestoreRepository.deleteMarket(id);
+        queryClient.invalidateQueries({ queryKey: ['markets'] });
+        logAction('MARKET_DELETE', `Administrador removeu estabelecimento ${name}`);
+        showSuccess(`Estabelecimento "${name}" removido.`);
       } catch (err: any) {
-        showError(`Erro ao excluir: ${err.message}`);
+        showError(`Erro ao excluir estabelecimento: ${err.message}`);
       }
     }
   };
@@ -501,7 +486,8 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
     try {
       const targetId = flyerForm.id!;
       const cleanFlyer = sanitizeFlyer(flyerForm as Flyer);
-      await setDoc(doc(db, 'flyers', targetId), cleanFlyer);
+      await FirestoreRepository.saveFlyer(targetId, cleanFlyer);
+      queryClient.invalidateQueries({ queryKey: ['flyers'] });
       logAction('FLYER_UPDATE', `Administrador atualizou metadados do folheto ${targetId}`);
       showSuccess('Metadados do folheto gravados!');
       setIsFlyerModalOpen(false);
@@ -513,15 +499,25 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
   const handleDeleteFlyer = async (flyerId: string) => {
     if (window.confirm(`ATENÇÃO: Deseja realmente excluir este folheto? Todas as ofertas associadas a ele também serão removidas permanentemente!`)) {
       try {
-        const batch = writeBatch(db);
-        // Delete Flyer
-        batch.delete(doc(db, 'flyers', flyerId));
-        // Delete associated Offers
         const associatedOffers = offers.filter(o => o.flyerId === flyerId);
-        associatedOffers.forEach(o => {
-          batch.delete(doc(db, 'offers', o.id));
-        });
-        await batch.commit();
+        // Chunk array into pieces of 499 (Firestore batch limit is 500)
+        const chunks = [];
+        let i = 0;
+        while (i < associatedOffers.length) {
+          chunks.push(associatedOffers.slice(i, i + 499));
+          i += 499;
+        }
+        
+        for (const chunk of chunks) {
+          const batch = writeBatch(db);
+          chunk.forEach(o => batch.delete(doc(db, 'offers', o.id)));
+          await batch.commit();
+        }
+        
+        // Delete the flyer itself
+        const flyerBatch = writeBatch(db);
+        flyerBatch.delete(doc(db, 'flyers', flyerId));
+        await flyerBatch.commit();
         logAction('FLYER_DELETE', `Administrador removeu folheto ${flyerId} e ${associatedOffers.length} ofertas associadas.`);
         showSuccess('Folheto e ofertas deletados com sucesso.');
       } catch (err: any) {
@@ -530,14 +526,6 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
     }
   };
 
-  const handleReprocessFlyer = async (flyer: Flyer) => {
-    try {
-      logAction('FLYER_REPROCESS', `Administrador solicitou reprocessamento de OCR para o folheto ${flyer.id}`);
-      showSuccess(`Simulando reprocessamento inteligente de OCR para folheto da loja ${markets.find(m => m.id === flyer.marketId)?.name}...`);
-    } catch (err: any) {
-      showError(`Erro: ${err.message}`);
-    }
-  };
 
   // ==========================================
   // MODULE 4: OCR AUDIT (ocr)
@@ -569,7 +557,8 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
         confidence: 100 // Mark as fully verified
       };
       const cleanOffer = sanitizeOffer(updated);
-      await setDoc(doc(db, 'offers', updated.id), cleanOffer);
+      await FirestoreRepository.saveOffer(updated.id, cleanOffer);
+      queryClient.invalidateQueries({ queryKey: ['offers'] });
       logAction('OCR_CORRECTION', `Administrador corrigiu OCR da oferta ${updated.id}: "${ocrReviewingOffer.originalName}" -> "${ocrOriginalText}"`);
       showSuccess('Auditoria gravada e salva!');
       setOcrReviewingOffer(null);
@@ -613,7 +602,8 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
     try {
       const targetId = productForm.id || `p-custom-${Date.now()}`;
       const payload = { ...productForm, id: targetId } as CanonicalProduct;
-      await setDoc(doc(db, 'canonical_products', targetId), payload);
+      await FirestoreRepository.saveProduct(targetId, payload);
+      queryClient.invalidateQueries({ queryKey: ['canonical_products'] });
       logAction(editingProductId ? 'PRODUCT_UPDATE' : 'PRODUCT_CREATE', `Administrador salvou produto canônico ${payload.name}`);
       showSuccess(`Produto canônico "${payload.name}" salvo com sucesso!`);
       setIsProdModalOpen(false);
@@ -625,7 +615,8 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
   const handleDeleteProduct = async (id: string, name: string) => {
     if (window.confirm(`Tem certeza de que deseja remover o produto canônico "${name}"? Isso desassociará ofertas históricas.`)) {
       try {
-        await deleteDoc(doc(db, 'canonical_products', id));
+        await FirestoreRepository.deleteProduct(id);
+        queryClient.invalidateQueries({ queryKey: ['canonical_products'] });
         logAction('PRODUCT_DELETE', `Administrador excluiu produto canônico "${name}"`);
         showSuccess(`Produto canônico excluído.`);
       } catch (err: any) {
@@ -666,7 +657,8 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
       return;
     }
     try {
-      await setDoc(doc(db, 'categories', catForm.id), catForm as Category);
+      await FirestoreRepository.saveCategory(catForm.id, catForm as Category);
+      queryClient.invalidateQueries({ queryKey: ['categories'] });
       logAction(editingCatId ? 'CATEGORY_UPDATE' : 'CATEGORY_CREATE', `Administrador gravou categoria ${catForm.name}`);
       showSuccess('Categoria salva!');
       setIsCatModalOpen(false);
@@ -678,7 +670,8 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
   const handleDeleteCategory = async (id: string, name: string) => {
     if (window.confirm(`Deseja remover a categoria "${name}"?`)) {
       try {
-        await deleteDoc(doc(db, 'categories', id));
+        await FirestoreRepository.deleteCategory(id);
+        queryClient.invalidateQueries({ queryKey: ['categories'] });
         logAction('CATEGORY_DELETE', `Administrador removeu categoria "${name}"`);
         showSuccess('Categoria excluída.');
       } catch (err: any) {
@@ -692,7 +685,8 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
   const handleAddBrand = async () => {
     if (!brandInput.trim()) return;
     try {
-      await setDoc(doc(db, 'brands_list', brandInput.trim()), { name: brandInput.trim() });
+      await FirestoreRepository.saveBrand(brandInput.trim());
+      queryClient.invalidateQueries({ queryKey: ['brands'] });
       logAction('BRAND_CREATE', `Administrador cadastrou nova marca "${brandInput.trim()}"`);
       showSuccess(`Marca "${brandInput.trim()}" cadastrada!`);
       setBrandInput('');
@@ -704,7 +698,8 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
   const handleDeleteBrand = async (b: string) => {
     if (window.confirm(`Excluir marca "${b}"?`)) {
       try {
-        await deleteDoc(doc(db, 'brands_list', b));
+        await FirestoreRepository.deleteBrand(b);
+        queryClient.invalidateQueries({ queryKey: ['brands'] });
         logAction('BRAND_DELETE', `Administrador excluiu marca "${b}"`);
         showSuccess('Marca removida.');
       } catch (err: any) {
@@ -851,23 +846,14 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
     if (!importPayload) return;
     try {
       const batch = writeBatch(db);
-      
-      if (importPayload.markets) {
-        importPayload.markets.forEach((m: any) => {
-          batch.set(doc(db, 'markets', m.id), m);
+      Object.entries(importPayload).forEach(([collectionName, docs]) => {
+        (docs as any[]).forEach(docData => {
+          const docId = docData.id;
+          if (docId) {
+            batch.set(doc(db, collectionName, docId), docData);
+          }
         });
-      }
-      if (importPayload.flyers) {
-        importPayload.flyers.forEach((f: any) => {
-          batch.set(doc(db, 'flyers', f.id), sanitizeFlyer(f));
-        });
-      }
-      if (importPayload.offers) {
-        importPayload.offers.forEach((o: any) => {
-          batch.set(doc(db, 'offers', o.id), sanitizeOffer(o));
-        });
-      }
-
+      });
       await batch.commit();
       logAction('DB_IMPORT', `Administrador importou backup externo e restaurou dados.`);
       showSuccess("Banco de dados restaurado com sucesso do arquivo de backup!");
@@ -881,21 +867,31 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
   const handleRestoreBackupFromList = async (bkp: Backup) => {
     if (window.confirm(`Deseja restaurar a aplicação para o estado do backup "${bkp.id}"? Isso substituirá as tabelas atuais!`)) {
       try {
-        const payloadDoc = await getDoc(doc(db, 'backup_payloads', bkp.id));
-        if (payloadDoc.exists()) {
-          const { payload } = payloadDoc.data();
-          const parsed = JSON.parse(payload);
-          
-          setImportPayload(parsed);
-          setImportFileSummary(`Deseja confirmar a restauração do backup interno "${bkp.id}"? Registros a serem reescritos: ${parsed.flyers?.length || 0} Folhetos, ${parsed.offers?.length || 0} Ofertas.`);
+        const payloadDocData = await FirestoreRepository.getBackupPayload(bkp.id);
+        if (payloadDocData) {
+          const payload = JSON.parse(payloadDocData.payload);
+          const batch = writeBatch(db);
+          Object.entries(payload).forEach(([collectionName, docs]) => {
+            if (collectionName !== 'id') {
+              (docs as any[]).forEach(docData => {
+                if (docData.id) {
+                  batch.set(doc(db, collectionName, docData.id), docData);
+                }
+              });
+            }
+          });
+          await batch.commit();
+          logAction('DB_RESTORE', `Administrador restaurou backup ${bkp.id}`);
+          showSuccess("Backup restaurado com sucesso!");
         } else {
-          showError("Payload do backup não encontrado no servidor.");
+          showError("Dados do backup não encontrados.");
         }
       } catch (err: any) {
-        showError(`Erro ao buscar backup: ${err.message}`);
+        showError(`Erro ao restaurar backup: ${err.message}`);
       }
     }
   };
+
 
   const handleDeleteBackup = async (id: string) => {
     if (window.confirm(`Excluir registro de backup "${id}"?`)) {
@@ -936,7 +932,6 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
       await batch.commit();
     }
   };
-
   const handleExecuteDangerAction = async () => {
     if (dangerConfirmPhrase !== 'APAGAR TODOS OS DADOS') {
       showError('Frase de segurança incorreta. Digite exatamente "APAGAR TODOS OS DADOS" em maiúsculas.');
@@ -1133,7 +1128,7 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
                             <span className="text-[10px] text-slate-400 block font-normal mt-0.5">{f.cityName} • {f.numPages} pág(s)</span>
                           </td>
                           <td className="px-4 py-3.5">
-                            <span className="font-medium text-slate-600 block">{new Date(f.startDate).toLocaleDateString()} a {new Date(f.endDate).toLocaleDateString()}</span>
+                            <span className="font-medium text-slate-600 block">{formatLocalDate(f.startDate)} a {formatLocalDate(f.endDate)}</span>
                           </td>
                           <td className="px-4 py-3.5 text-center">
                             <span className={`px-2.5 py-1 rounded-xl text-[10px] font-bold border inline-block ${
@@ -1152,41 +1147,8 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
                             )}
                           </td>
                           <td className="px-4 py-3.5 text-right space-x-2">
-                            {f.status === 'pending_ocr' && (
-                              <button 
-                                onClick={async () => {
-                                  // Trigger AI process
-                                  try {
-                                    const batch = writeBatch(db);
-                                    batch.update(doc(db, 'flyers', f.id), { status: 'processed' });
-                                    fOffers.forEach(o => {
-                                      batch.update(doc(db, 'offers', o.id), { status: 'reviewed' });
-                                    });
-                                    await batch.commit();
-                                    logAction('IA_OCR_TRIGGER', `Processamento manual forçado para folheto ${f.id}`);
-                                    showSuccess('OCR processado com sucesso via simulação da inteligência!');
-                                  } catch (err) {
-                                    showError('Erro ao simular processamento do folheto.');
-                                  }
-                                }}
-                                className="px-2.5 py-1.5 bg-indigo-600 text-white hover:bg-indigo-700 rounded-lg text-[10px] font-bold cursor-pointer transition-all"
-                              >
-                                Rodar OCR/IA
-                              </button>
-                            )}
-                            <button 
-                              onClick={() => {
-                                if (fPendingReview > 0 || f.status === 'pending_ocr') {
-                                  setSelectedOcrFlyerId(f.id);
-                                  setActiveSubTab('ocr');
-                                } else {
-                                  setActiveSubTab('products');
-                                }
-                              }}
-                              className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-bold cursor-pointer transition-all inline-block"
-                            >
-                              Intervir
-                            </button>
+                            {f.status === 'pending_ocr' && null}
+                            
                           </td>
                         </tr>
                       );
@@ -1381,26 +1343,7 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
                         <p className="text-[10px] text-rose-700 font-semibold mt-1">Essas ofertas estão associadas a folhetos inexistentes e prejudicam a fidelidade dos gráficos estatísticos.</p>
                       </div>
                     </div>
-                    <button 
-                      onClick={async () => {
-                        // Purge orphans
-                        try {
-                          const batch = writeBatch(db);
-                          const badOffers = offers.filter(o => !flyers.some(f => f.id === o.flyerId));
-                          badOffers.forEach(bo => {
-                            batch.delete(doc(db, 'offers', bo.id));
-                          });
-                          await batch.commit();
-                          logAction('PURGE_ORPHANS', `Expurgadas ${badOffers.length} ofertas órfãs.`);
-                          showSuccess('Todas as ofertas órfãs foram limpas com sucesso!');
-                        } catch (err) {
-                          showError('Falha ao expurgar registros órfãos.');
-                        }
-                      }}
-                      className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-[10px] rounded-xl cursor-pointer"
-                    >
-                      Expurgar Órfãos
-                    </button>
+                    
                   </div>
                 )}
 
@@ -1413,12 +1356,7 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
                         <p className="text-[10px] text-amber-700 font-semibold mt-1">Catalogados com nomes semelhantes. Recomenda-se realizar a fusão ou exclusão para manter a integridade dos históricos.</p>
                       </div>
                     </div>
-                    <button 
-                      onClick={() => setActiveSubTab('products')}
-                      className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold text-[10px] rounded-xl cursor-pointer"
-                    >
-                      Revisar Catálogo
-                    </button>
+                    
                   </div>
                 )}
 
@@ -1431,12 +1369,7 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
                         <p className="text-[10px] text-indigo-700 font-semibold mt-1">Ofertas lidas pelo motor de IA abaixo do nível de aceitação de 85%. Requerem auditoria espacial manual.</p>
                       </div>
                     </div>
-                    <button 
-                      onClick={() => setActiveSubTab('ocr')}
-                      className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[10px] rounded-xl cursor-pointer"
-                    >
-                      Auditar Leituras
-                    </button>
+                    
                   </div>
                 )}
 
@@ -1458,20 +1391,36 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
           <div className="space-y-6">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Lojas</span>
-                <span className="text-2xl font-black text-slate-800 mt-1 block">{technicalStats.marketsCount}</span>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Estabelecimentos</span>
+                {loadingDb ? (
+                  <div className="h-8 w-16 bg-slate-100 rounded-lg animate-pulse mt-1" />
+                ) : (
+                  <span className="text-2xl font-black text-slate-800 mt-1 block">{technicalStats.marketsCount}</span>
+                )}
               </div>
               <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Folhetos</span>
-                <span className="text-2xl font-black text-slate-800 mt-1 block">{technicalStats.flyersCount}</span>
+                {loadingDb ? (
+                  <div className="h-8 w-16 bg-slate-100 rounded-lg animate-pulse mt-1" />
+                ) : (
+                  <span className="text-2xl font-black text-slate-800 mt-1 block">{technicalStats.flyersCount}</span>
+                )}
               </div>
               <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Ofertas OCR</span>
-                <span className="text-2xl font-black text-slate-800 mt-1 block">{technicalStats.offersCount}</span>
+                {loadingDb ? (
+                  <div className="h-8 w-16 bg-slate-100 rounded-lg animate-pulse mt-1" />
+                ) : (
+                  <span className="text-2xl font-black text-slate-800 mt-1 block">{technicalStats.offersCount}</span>
+                )}
               </div>
               <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Confiança Média</span>
-                <span className="text-2xl font-black text-indigo-600 mt-1 block">{technicalStats.avgConfidence}%</span>
+                {loadingDb ? (
+                  <div className="h-8 w-16 bg-indigo-50 rounded-lg animate-pulse mt-1" />
+                ) : (
+                  <span className="text-2xl font-black text-indigo-600 mt-1 block">{technicalStats.avgConfidence}%</span>
+                )}
               </div>
             </div>
 
@@ -1483,19 +1432,39 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
                 <div className="space-y-3 text-xs">
                   <div className="flex justify-between py-2 border-b border-slate-50">
                     <span className="text-slate-400 font-semibold">Tamanho das Imagens:</span>
-                    <span className="text-slate-700 font-bold">{technicalStats.storageUsed}</span>
+                    {loadingDb ? (
+                      <div className="h-4 w-12 bg-slate-100 rounded animate-pulse" />
+                    ) : (
+                      <span className="text-slate-700 font-bold">{technicalStats.storageUsed}</span>
+                    )}
                   </div>
                   <div className="flex justify-between py-2 border-b border-slate-50">
                     <span className="text-slate-400 font-semibold">Fila de Processamento OCR:</span>
-                    <span className="text-emerald-600 font-bold">0 Pendente (Inativo)</span>
+                    {loadingDb ? (
+                      <div className="h-4 w-20 bg-slate-100 rounded animate-pulse" />
+                    ) : (
+                      <span className={technicalStats.processingQueue > 0 ? "text-indigo-600 font-bold animate-pulse" : "text-slate-500 font-bold"}>
+                        {technicalStats.processingQueue} {technicalStats.processingQueue === 1 ? 'Pendente' : 'Pendentes'}
+                      </span>
+                    )}
                   </div>
                   <div className="flex justify-between py-2 border-b border-slate-50">
                     <span className="text-slate-400 font-semibold">Falhas Críticas Registradas:</span>
-                    <span className="text-rose-500 font-bold">{technicalStats.ocrFailures} ocorrências</span>
+                    {loadingDb ? (
+                      <div className="h-4 w-16 bg-slate-100 rounded animate-pulse" />
+                    ) : (
+                      <span className={technicalStats.ocrFailures > 0 ? "text-rose-600 font-bold" : "text-emerald-600 font-bold"}>
+                        {technicalStats.ocrFailures} {technicalStats.ocrFailures === 1 ? 'ocorrência' : 'ocorrências'}
+                      </span>
+                    )}
                   </div>
                   <div className="flex justify-between py-2">
                     <span className="text-slate-400 font-semibold">Produtos Canônicos Normalizados:</span>
-                    <span className="text-slate-700 font-bold">{technicalStats.productsCount} itens</span>
+                    {loadingDb ? (
+                      <div className="h-4 w-12 bg-slate-100 rounded animate-pulse" />
+                    ) : (
+                      <span className="text-slate-700 font-bold">{technicalStats.productsCount} itens</span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1524,19 +1493,14 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
                 <h3 className="text-sm font-bold text-slate-800">Cadastro de Estabelecimentos</h3>
                 <p className="text-xs text-slate-400 mt-0.5">Gerenciamento de redes de supermercado de {APP_CONFIG.defaultCity}</p>
               </div>
-              <button 
-                onClick={() => handleOpenMarketModal()}
-                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold flex items-center gap-1 cursor-pointer"
-              >
-                <Plus className="w-4 h-4" /> Cadastrar Loja
-              </button>
+              
             </div>
 
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-100 text-slate-500">
-                    <th className="px-4 py-2.5 font-bold">Nome da Loja</th>
+                    <th className="px-4 py-2.5 font-bold">Nome do Estabelecimento</th>
                     <th className="px-4 py-2.5 font-bold">Endereço</th>
                     <th className="px-4 py-2.5 font-bold">Cidade</th>
                     <th className="px-4 py-2.5 font-bold text-right">Ações</th>
@@ -1549,18 +1513,8 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
                       <td className="px-4 py-3">{m.address}</td>
                       <td className="px-4 py-3 uppercase text-[10px] text-slate-500">{m.cityId}</td>
                       <td className="px-4 py-3 text-right space-x-2">
-                        <button 
-                          onClick={() => handleOpenMarketModal(m)}
-                          className="p-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-lg cursor-pointer inline-flex"
-                        >
-                          <Edit className="w-3.5 h-3.5" />
-                        </button>
-                        <button 
-                          onClick={() => handleDeleteMarket(m.id, m.name)}
-                          className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg cursor-pointer inline-flex"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        
+                        
                       </td>
                     </tr>
                   ))}
@@ -1757,18 +1711,8 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
                     </div>
 
                     <div className="flex justify-end gap-2 pt-4 border-t border-slate-50">
-                      <button 
-                        onClick={() => setIsMarketModalOpen(false)}
-                        className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl text-xs font-bold text-slate-600 cursor-pointer"
-                      >
-                        Cancelar
-                      </button>
-                      <button 
-                        onClick={handleSaveMarket}
-                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-xs font-bold text-white cursor-pointer"
-                      >
-                        Salvar Estabelecimento
-                      </button>
+                      
+                      
                     </div>
                   </motion.div>
                 </div>
@@ -1788,7 +1732,7 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
           <div className="space-y-6">
             <DashboardUpload 
               onAddFlyerAndOffers={onAddFlyerAndOffers} 
-              markets={markets}
+              markets={markets} canonicalProducts={products} categories={categories}
               uploadSession={uploadSession}
               setUploadSession={setUploadSession}
             />
@@ -1853,35 +1797,13 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
                           <td className="px-4 py-3 font-bold text-slate-900">{marketName}</td>
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-2">
-                              <button
-                                onClick={() => {
-                                  setViewingOriginalFlyer(f);
-                                  setViewingOriginalFlyerOffer(null);
-                                }}
-                                className="group flex items-center gap-1.5 focus:outline-none cursor-pointer"
-                              >
-                                <div className="relative w-10 h-10 border border-slate-200 rounded-lg overflow-hidden shrink-0 group-hover:border-indigo-500 transition-all">
-                                  <img src={f.imageUrl} alt="Miniatura" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                                </div>
-                                <span className="text-[10px] text-indigo-600 hover:text-indigo-800 font-bold hidden md:inline">Ver Imagem</span>
-                              </button>
-                              {f.linkOriginal && (
-                                <button
-                                  onClick={() => {
-                                    navigator.clipboard.writeText(f.linkOriginal || '');
-                                    showSuccess('✓ Link/Base64 da imagem original copiado com sucesso!');
-                                  }}
-                                  className="p-1 hover:bg-slate-100 text-slate-400 hover:text-slate-600 rounded transition-colors cursor-pointer shrink-0"
-                                  title="Copiar Link/Base64 Original"
-                                >
-                                  <Copy className="w-3.5 h-3.5" />
-                                </button>
-                              )}
+                              
+                              {f.linkOriginal && null}
                             </div>
                           </td>
                           <td className="px-4 py-3">
-                            <span className="block font-bold text-slate-800">{f.startDate ? new Date(f.startDate).toLocaleDateString() : 'N/A'}</span>
-                            <span className="text-[10px] text-slate-400">até {f.endDate ? new Date(f.endDate).toLocaleDateString() : 'N/A'}</span>
+                            <span className="block font-bold text-slate-800">{f.startDate ? formatLocalDate(f.startDate) : 'N/A'}</span>
+                            <span className="text-[10px] text-slate-400">até {f.endDate ? formatLocalDate(f.endDate) : 'N/A'}</span>
                           </td>
                           <td className="px-4 py-3 text-slate-500">{sendDateStr}</td>
                           <td className="px-4 py-3 text-center">
@@ -1899,24 +1821,17 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
                             </span>
                           </td>
                           <td className="px-4 py-3 text-right space-x-1.5">
-                            <button 
-                              onClick={() => handleReprocessFlyer(f)}
-                              className="p-1.5 bg-slate-50 hover:bg-slate-100 text-indigo-600 rounded-lg cursor-pointer inline-flex"
-                              title="Reprocessar OCR"
-                            >
-                              <RefreshCw className="w-3.5 h-3.5" />
-                            </button>
-                            <button 
+                            <button
                               onClick={() => handleOpenFlyerModal(f)}
                               className="p-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-lg cursor-pointer inline-flex"
-                              title="Editar Metadados"
+                              title="Editar informações do folheto"
                             >
                               <Edit className="w-3.5 h-3.5" />
                             </button>
-                            <button 
+                            <button
                               onClick={() => handleDeleteFlyer(f.id)}
                               className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg cursor-pointer inline-flex"
-                              title="Excluir"
+                              title="Excluir folheto permanentemente"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
@@ -1970,18 +1885,8 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
                     </div>
 
                     <div className="flex justify-end gap-2 pt-2">
-                      <button 
-                        onClick={() => setIsFlyerModalOpen(false)}
-                        className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl text-xs font-bold text-slate-600 cursor-pointer"
-                      >
-                        Cancelar
-                      </button>
-                      <button 
-                        onClick={handleSaveFlyer}
-                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-xs font-bold text-white cursor-pointer"
-                      >
-                        Gravar
-                      </button>
+                      
+                      
                     </div>
                   </motion.div>
                 </div>
@@ -2042,12 +1947,7 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
                           </span>
                         </td>
                         <td className="px-4 py-3 text-right">
-                          <button 
-                            onClick={() => handleAuditOcrOffer(o)}
-                            className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-lg cursor-pointer font-bold"
-                          >
-                            Auditar
-                          </button>
+                          
                         </td>
                       </tr>
                     ))}
@@ -2090,18 +1990,8 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
                     </div>
 
                     <div className="flex gap-2 justify-end pt-2">
-                      <button 
-                        onClick={() => setOcrReviewingOffer(null)}
-                        className="px-3 py-2 bg-slate-200 text-slate-600 rounded-xl font-bold cursor-pointer hover:bg-slate-300"
-                      >
-                        Cancelar
-                      </button>
-                      <button 
-                        onClick={handleSaveOcrAudit}
-                        className="px-4 py-2 bg-indigo-600 text-white rounded-xl font-bold cursor-pointer hover:bg-indigo-500"
-                      >
-                        Aprovar & Salvar
-                      </button>
+                      
+                      
                     </div>
                   </div>
                 ) : (
@@ -2218,15 +2108,8 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
                       </div>
 
                       <div className="pt-1">
-                        <button
-                          onClick={() => {
-                            setViewingOriginalFlyer(parentFlyer || null);
-                            setViewingOriginalFlyerOffer(o);
-                          }}
-                          disabled={!parentFlyer}
-                          className="w-full py-2 bg-indigo-50 hover:bg-indigo-100 disabled:opacity-50 disabled:bg-slate-50 text-indigo-700 rounded-xl text-[11px] font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-                        >
-                          <Eye className="w-3.5 h-3.5" /> Visualizar Folheto Completo
+                        <button onClick={() => setEditingCropOffer(o)} className="flex items-center gap-1.5 p-1.5 bg-slate-100 text-slate-600 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 transition-colors" title="Ajustar Recorte">
+                          <Scissors className="w-4 h-4" /> Ajustar Recorte
                         </button>
                       </div>
                     </div>
@@ -2234,7 +2117,27 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
                 })}
               </div>
             )}
-          </div>
+          
+            <AnimatePresence>
+              {editingCropOffer && (
+                <CropEditorModal
+                  imageUrl={flyers.find(f => f.id === editingCropOffer.flyerId)?.imageUrl || ''}
+                  initialCrop={editingCropOffer.boundingBox}
+                  onClose={() => setEditingCropOffer(null)}
+                  onConfirm={async (percentCrop, croppedBase64) => {
+                    const updatedOffer = {
+                      ...editingCropOffer,
+                      boundingBox: percentCrop,
+                      croppedImageUrl: croppedBase64,
+                      processingTimestamp: new Date().toISOString()
+                    };
+                    await onUpdateOffer(updatedOffer);
+                    setEditingCropOffer(null);
+                  }}
+                />
+              )}
+            </AnimatePresence>
+    </div>
         );
       }
 
@@ -2247,18 +2150,8 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
                 <p className="text-xs text-slate-400 mt-0.5">Normalização inteligente que agrupa variações textuais sob um único código de barra virtual</p>
               </div>
               <div className="flex gap-2 w-full sm:w-auto">
-                <button 
-                  onClick={handleMergeDuplicates}
-                  className="px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-xl text-xs font-bold flex items-center gap-1 cursor-pointer"
-                >
-                  <RefreshCw className="w-4 h-4" /> Unificar Duplicados
-                </button>
-                <button 
-                  onClick={() => handleOpenProductModal()}
-                  className="px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold flex items-center gap-1 cursor-pointer"
-                >
-                  <Plus className="w-4 h-4" /> Novo Produto
-                </button>
+                
+                
               </div>
             </div>
 
@@ -2292,18 +2185,8 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
                       <td className="px-4 py-3 uppercase text-[10px] text-slate-500">{p.category}</td>
                       <td className="px-4 py-3">{p.weightVolume}</td>
                       <td className="px-4 py-3 text-right space-x-2">
-                        <button 
-                          onClick={() => handleOpenProductModal(p)}
-                          className="p-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-lg cursor-pointer inline-flex"
-                        >
-                          <Edit className="w-3.5 h-3.5" />
-                        </button>
-                        <button 
-                          onClick={() => handleDeleteProduct(p.id, p.name)}
-                          className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg cursor-pointer inline-flex"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        
+                        
                       </td>
                     </tr>
                   ))}
@@ -2382,18 +2265,8 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
                     </div>
 
                     <div className="flex justify-end gap-2 pt-2">
-                      <button 
-                        onClick={() => setIsProdModalOpen(false)}
-                        className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl text-xs font-bold text-slate-600 cursor-pointer"
-                      >
-                        Cancelar
-                      </button>
-                      <button 
-                        onClick={handleSaveProduct}
-                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-xs font-bold text-white cursor-pointer"
-                      >
-                        Salvar
-                      </button>
+                      
+                      
                     </div>
                   </motion.div>
                 </div>
@@ -2410,12 +2283,7 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
                 <h3 className="text-sm font-bold text-slate-800">Seções / Categorias</h3>
                 <p className="text-xs text-slate-400 mt-0.5">Gestão das categorias principais de precificação de alimentos</p>
               </div>
-              <button 
-                onClick={() => handleOpenCatModal()}
-                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold flex items-center gap-1 cursor-pointer"
-              >
-                <Plus className="w-4 h-4" /> Nova Categoria
-              </button>
+              
             </div>
 
             <div className="overflow-x-auto">
@@ -2435,18 +2303,8 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
                       <td className="px-4 py-3 font-bold text-slate-900">{c.name}</td>
                       <td className="px-4 py-3">{c.icon}</td>
                       <td className="px-4 py-3 text-right space-x-2">
-                        <button 
-                          onClick={() => handleOpenCatModal(c)}
-                          className="p-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-lg cursor-pointer inline-flex"
-                        >
-                          <Edit className="w-3.5 h-3.5" />
-                        </button>
-                        <button 
-                          onClick={() => handleDeleteCategory(c.id, c.name)}
-                          className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg cursor-pointer inline-flex"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        
+                        
                       </td>
                     </tr>
                   ))}
@@ -2502,18 +2360,8 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
                     </div>
 
                     <div className="flex justify-end gap-2 pt-2">
-                      <button 
-                        onClick={() => setIsCatModalOpen(false)}
-                        className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl text-xs font-bold text-slate-600 cursor-pointer"
-                      >
-                        Cancelar
-                      </button>
-                      <button 
-                        onClick={handleSaveCategory}
-                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-xs font-bold text-white cursor-pointer"
-                      >
-                        Salvar
-                      </button>
+                      
+                      
                     </div>
                   </motion.div>
                 </div>
@@ -2538,24 +2386,14 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
                 placeholder="Digitar nova marca (ex: Nestlé)..."
                 className="flex-1 text-xs px-3.5 py-2 bg-slate-50 border-none rounded-xl font-bold outline-none text-slate-800"
               />
-              <button 
-                onClick={handleAddBrand}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-xs flex items-center gap-1 cursor-pointer"
-              >
-                <Plus className="w-4 h-4" /> Cadastrar
-              </button>
+              
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-3">
               {brands.map(b => (
                 <div key={b} className="p-3 bg-slate-50 rounded-xl border border-slate-100 flex justify-between items-center text-xs font-bold text-slate-800">
                   <span>{b}</span>
-                  <button 
-                    onClick={() => handleDeleteBrand(b)}
-                    className="p-1 text-slate-400 hover:text-rose-600 rounded-md transition-colors cursor-pointer"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
+                  
                 </div>
               ))}
             </div>
@@ -2647,12 +2485,7 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
                   Utilizando o Gemini-3.5-Flash para auditorias e associação inteligente de marcas e pesos.
                 </p>
               </div>
-              <button 
-                onClick={handleTestAICopilot}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl cursor-pointer"
-              >
-                Testar Modelo
-              </button>
+              
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -2678,12 +2511,7 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
                   <h3 className="text-sm font-bold text-slate-800">Rotinas de Backup</h3>
                   <p className="text-xs text-slate-400 mt-0.5">Gere backups completos de segurança das ofertas no Firestore</p>
                 </div>
-                <button 
-                  onClick={handleCreateBackup}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold flex items-center gap-1 cursor-pointer"
-                >
-                  <Plus className="w-4 h-4" /> Criar Backup Completo
-                </button>
+                
               </div>
 
               <div className="overflow-x-auto">
@@ -2705,20 +2533,8 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
                         <td className="px-4 py-3">{bkp.size}</td>
                         <td className="px-4 py-3 text-center">{bkp.recordCount}</td>
                         <td className="px-4 py-3 text-right space-x-2">
-                          <button 
-                            onClick={() => handleRestoreBackupFromList(bkp)}
-                            className="p-1.5 bg-slate-50 hover:bg-slate-100 text-emerald-600 rounded-lg cursor-pointer inline-flex"
-                            title="Restaurar Backup"
-                          >
-                            <Download className="w-3.5 h-3.5" />
-                          </button>
-                          <button 
-                            onClick={() => handleDeleteBackup(bkp.id)}
-                            className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg cursor-pointer inline-flex"
-                            title="Deletar Backup"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          
+                          
                         </td>
                       </tr>
                     ))}
@@ -2744,13 +2560,10 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
                     <span>Exportar Base Completa</span>
                     <div className="flex gap-1">
                       <button onClick={() => handleExportData('JSON', false)} className="p-2 bg-white hover:bg-slate-100 text-slate-700 rounded-lg border border-slate-200 cursor-pointer flex items-center gap-1">
-                        <FileJson className="w-3.5 h-3.5 text-orange-500" /> JSON
                       </button>
                       <button onClick={() => handleExportData('CSV', false)} className="p-2 bg-white hover:bg-slate-100 text-slate-700 rounded-lg border border-slate-200 cursor-pointer flex items-center gap-1">
-                        <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" /> CSV
                       </button>
                       <button onClick={() => handleExportData('SQL', false)} className="p-2 bg-white hover:bg-slate-100 text-slate-700 rounded-lg border border-slate-200 cursor-pointer flex items-center gap-1">
-                        <FileCode className="w-3.5 h-3.5 text-indigo-500" /> SQL
                       </button>
                     </div>
                   </div>
@@ -2759,10 +2572,8 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
                     <span>Exportar Amostra Parcial (20 registros)</span>
                     <div className="flex gap-1">
                       <button onClick={() => handleExportData('JSON', true)} className="p-2 bg-white hover:bg-slate-100 text-slate-700 rounded-lg border border-slate-200 cursor-pointer">
-                        JSON
                       </button>
                       <button onClick={() => handleExportData('CSV', true)} className="p-2 bg-white hover:bg-slate-100 text-slate-700 rounded-lg border border-slate-200 cursor-pointer">
-                        CSV
                       </button>
                     </div>
                   </div>
@@ -2782,12 +2593,7 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
                     onChange={handleImportFileChange}
                     className="hidden"
                   />
-                  <button 
-                    onClick={() => fileInputRef.current?.click()}
-                    className="flex-1 py-3 px-4 border border-dashed border-slate-200 hover:border-indigo-400 bg-slate-50 hover:bg-indigo-50/10 text-slate-600 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
-                  >
-                    <Upload className="w-4 h-4 text-indigo-500" /> Selecionar Arquivo JSON
-                  </button>
+                  
                 </div>
 
                 {importFileSummary && (
@@ -2868,15 +2674,71 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
                 </div>
 
                 <div>
-                  <label className="text-[10px] font-bold text-slate-400 block uppercase">Modelo Gemini</label>
-                  <select 
-                    value={geminiModel}
-                    onChange={(e) => setGeminiModel(e.target.value)}
-                    className="w-full mt-1.5 px-3 py-2 bg-slate-50 border-none rounded-xl text-xs font-bold outline-none text-slate-800"
-                  >
-                    <option value="gemini-3.5-flash">Gemini 3.5 Flash (Padrão)</option>
-                    <option value="gemini-2.5-pro">Gemini 2.5 Pro (Sensível)</option>
-                  </select>
+                  <label className="text-[10px] font-bold text-slate-400 block uppercase font-mono tracking-wider">Modelo Gemini Principal</label>
+                  {loadingModels ? (
+                    <div className="flex items-center gap-2 mt-2 text-slate-400 text-xs font-mono">
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-500" />
+                      <span>Carregando modelos do Google Gemini...</span>
+                    </div>
+                  ) : (
+                    <select 
+                      value={geminiModel}
+                      onChange={(e) => {
+                        setGeminiModel(e.target.value);
+                      }}
+                      className="w-full mt-1.5 px-3.5 py-2.5 bg-slate-50 border border-slate-100 rounded-xl text-xs font-bold outline-none text-slate-800 focus:border-indigo-500 transition-all cursor-pointer font-sans"
+                    >
+                      {availableModels.map(m => (
+                        <option key={m.id} value={m.id}>
+                          {m.name} {!m.isFree ? '⭐ (Pago)' : ' (Gratuito)'}
+                        </option>
+                      ))}
+                      {availableModels.length === 0 && (
+                        <>
+                          <option value="gemini-3.5-flash">Gemini 3.5 Flash (Padrão)</option>
+                          <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite</option>
+                          <option value="gemini-2.5-pro">Gemini 2.5 Pro (Sensível)</option>
+                        </>
+                      )}
+                    </select>
+                  )}
+
+                  {/* Detailed card explaining the selected model's details */}
+                  {(() => {
+                    const selected = availableModels.find(m => m.id === geminiModel);
+                    if (!selected) return null;
+                    return (
+                      <div className="mt-3.5 p-4 bg-indigo-50/40 border border-indigo-100/50 rounded-2xl space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider font-mono">
+                            Ficha Técnica do Modelo
+                          </span>
+                          <span className={`text-[9px] px-2.5 py-0.5 rounded-full font-bold ${selected.isFree ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
+                            {selected.isFree ? 'Modelo Gratuito' : 'Modelo Pago'}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-600 leading-relaxed font-semibold">
+                          {selected.description}
+                        </p>
+                        <div className="grid grid-cols-2 gap-4 pt-2.5 border-t border-indigo-100/40 text-[10px] font-medium text-slate-500">
+                          <div>
+                            <span className="font-bold text-slate-400 block uppercase text-[8px] tracking-wider mb-0.5">Limitações</span>
+                            {selected.limitations}
+                          </div>
+                          <div>
+                            <span className="font-bold text-slate-400 block uppercase text-[8px] tracking-wider mb-0.5 font-mono">Recomendações</span>
+                            <div className="flex flex-wrap gap-1 mt-0.5">
+                              {selected.recommendations.map((rec: string) => (
+                                <span key={rec} className="px-1.5 py-0.5 bg-indigo-100/50 text-indigo-700 text-[8px] font-mono rounded font-bold uppercase">
+                                  {rec === 'fast' ? 'rápido' : rec === 'images' ? 'multimodal' : rec === 'quality' ? 'preciso' : rec === 'ocr' ? 'ocr/vendas' : rec}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
 
@@ -2904,12 +2766,7 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
             </div>
 
             <div className="flex justify-end pt-3 border-t border-slate-100">
-              <button 
-                onClick={() => showSuccess("Configurações gravadas com sucesso no banco de dados!")}
-                className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl cursor-pointer"
-              >
-                Salvar Configurações
-              </button>
+              
             </div>
           </div>
         );
@@ -2937,12 +2794,7 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
                     <h4 className="text-xs font-bold text-slate-900 block uppercase">Limpar Toda a Base de Dados</h4>
                     <span className="text-[11px] text-slate-400 mt-1 block">Remove permanentemente todos os {flyers.length} folhetos, {offers.length} ofertas, {markets.length} mercados e todos os dados associados.</span>
                   </div>
-                  <button 
-                    onClick={() => handleOpenDangerAction('clean')}
-                    className="px-4 py-2 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 font-bold text-xs rounded-xl cursor-pointer"
-                  >
-                    Limpar Base de Dados
-                  </button>
+                  
                 </div>
 
                 {/* 2. Exclusão de Arquivos */}
@@ -2951,12 +2803,7 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
                     <h4 className="text-xs font-bold text-slate-900 block uppercase">Excluir Cache de Imagens e Dados OCR</h4>
                     <span className="text-[11px] text-slate-400 mt-1 block">Apaga os arquivos físicos de imagens convertidas e dados de OCR temporários salvos no servidor.</span>
                   </div>
-                  <button 
-                    onClick={() => handleOpenDangerAction('files')}
-                    className="px-4 py-2 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 font-bold text-xs rounded-xl cursor-pointer"
-                  >
-                    Limpar Cache de Arquivos
-                  </button>
+                  
                 </div>
               </div>
             </div>
@@ -3039,19 +2886,8 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
                     </div>
 
                     <div className="flex justify-end gap-2 pt-2">
-                      <button 
-                        onClick={() => setDangerAction(null)}
-                        className="px-4 py-2 bg-slate-50 hover:bg-slate-100 rounded-xl text-xs font-bold text-slate-600 cursor-pointer"
-                      >
-                        Cancelar
-                      </button>
-                      <button 
-                        onClick={handleExecuteDangerAction}
-                        disabled={dangerConfirmPhrase !== 'APAGAR TODOS OS DADOS' || (dangerAction === 'clean' && !dangerUnderstandCheckbox)}
-                        className="px-4 py-2 bg-rose-600 hover:bg-rose-500 disabled:opacity-40 disabled:hover:bg-rose-600 rounded-xl text-xs font-bold text-white cursor-pointer"
-                      >
-                        Confirmar Exclusão Dupla
-                      </button>
+                      
+                      
                     </div>
                   </motion.div>
                 </div>
@@ -3074,7 +2910,7 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
             Painel de Controle Administrativo
           </h1>
           <p className="text-slate-500 mt-1">
-            Garantindo integridade dos dados, calibração espacial, CRUD de lojas e zona de perigo protegida
+            Garantindo integridade dos dados, calibração espacial, CRUD de estabelecimentos e zona de perigo protegida
           </p>
         </div>
 
@@ -3114,30 +2950,77 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
 
       {/* Grid structure: Left Sub-navigation Tabs, Right Dynamic Render stage */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Side Navigation Menu panel */}
-        <div className="lg:col-span-3 bg-white rounded-3xl border border-slate-100 shadow-sm p-4 h-fit">
-          <nav className="space-y-1">
-            {subTabs.map(tab => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveSubTab(tab.id)}
-                className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all duration-150 cursor-pointer ${
-                  activeSubTab === tab.id
-                    ? tab.isDanger 
-                      ? 'bg-rose-500 text-white shadow-md shadow-rose-500/10'
-                      : 'bg-indigo-600 text-white shadow-md shadow-indigo-600/10'
-                    : tab.isDanger
-                      ? 'text-rose-600 hover:bg-rose-50'
-                      : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
-                }`}
-              >
-                {tab.icon}
-                <span>{tab.label}</span>
-              </button>
-            ))}
-          </nav>
+
+        {/* Mobile Header / Hamburger */}
+        <div className="lg:hidden flex justify-between items-center bg-white p-4 rounded-3xl border border-slate-100 shadow-sm mb-6">
+          <div className="font-bold text-slate-800 flex items-center gap-2">
+            {subTabs.find(t => t.id === activeSubTab)?.icon}
+            {subTabs.find(t => t.id === activeSubTab)?.label}
+          </div>
+          <button 
+            onClick={() => setIsMobileSidebarOpen(true)}
+            className="p-2 bg-slate-100 text-slate-600 rounded-lg"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
         </div>
 
+        {/* Overlay */}
+        <AnimatePresence>
+          {isMobileSidebarOpen && (
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }}
+              onClick={() => setIsMobileSidebarOpen(false)}
+              className="fixed inset-0 bg-slate-950/40 backdrop-blur-sm z-40 lg:hidden"
+            />
+          )}
+        </AnimatePresence>
+
+        {/* Left Side Navigation Menu panel */}
+        <div className={`
+          fixed lg:static inset-y-0 left-0 z-50 w-72 lg:w-auto bg-white lg:bg-transparent lg:border-none shadow-2xl lg:shadow-none
+          transform transition-transform duration-300 ease-in-out lg:transform-none lg:transition-none
+          ${isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+          lg:col-span-3 h-full overflow-y-auto lg:overflow-visible
+        `}>
+          <div className="bg-white lg:rounded-3xl lg:border lg:border-slate-100 lg:shadow-sm p-4 lg:p-4 min-h-full">
+            <div className="flex justify-between items-center mb-6 lg:hidden">
+              <h3 className="font-bold text-slate-800">Menu</h3>
+              <button 
+                onClick={() => setIsMobileSidebarOpen(false)}
+                className="p-2 bg-slate-100 text-slate-600 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <nav className="flex flex-col gap-1">
+              {subTabs.map(tab => {
+                return (
+                <button
+                  key={tab.id}
+                  onClick={() => {
+                    setActiveSubTab(tab.id);
+                    setIsMobileSidebarOpen(false);
+                  }}
+                  className={`text-left px-4 py-3 lg:py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-3 ${
+                    activeSubTab === tab.id
+                      ? 'bg-indigo-50 text-indigo-700'
+                      : 'text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  <div className={`${activeSubTab === tab.id ? 'text-indigo-600' : 'text-slate-400'}`}>
+                    {tab.icon}
+                  </div>
+                  {tab.label}
+                </button>
+                );
+              })}
+            </nav>
+          </div>
+        </div>
         {/* Right Dynamic Stage */}
         <div className="lg:col-span-9">
           <AnimatePresence mode="wait">
@@ -3182,60 +3065,17 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
                     </p>
                   )}
                 </div>
-                <button 
-                  onClick={() => {
-                    setViewingOriginalFlyer(null);
-                    setViewingOriginalFlyerOffer(null);
-                    setViewOriginalQuality(false);
-                  }}
-                  className="p-1.5 hover:bg-slate-200 text-slate-400 hover:text-slate-700 rounded-lg cursor-pointer transition-all"
-                >
-                  <X className="w-4 h-4" />
-                </button>
+                
               </div>
 
               {/* Toolbar */}
               <div className="px-6 py-2 border-b border-slate-100 bg-white flex flex-wrap justify-between items-center gap-3">
                 <div className="flex gap-2">
-                  {viewingOriginalFlyer.linkOriginal && (
-                    <button
-                      onClick={() => setViewOriginalQuality(!viewOriginalQuality)}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
-                        viewOriginalQuality 
-                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm' 
-                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
-                      }`}
-                    >
-                      {viewOriginalQuality ? 'Exibindo: Alta Resolução (Original)' : 'Exibir Imagem em Alta Resolução (Original)'}
-                    </button>
-                  )}
+                  {viewingOriginalFlyer.linkOriginal && null}
                 </div>
                 <div className="flex gap-2">
-                  <button
-                    onClick={() => {
-                      const imageToCopy = viewingOriginalFlyer.linkOriginal || viewingOriginalFlyer.imageUrl;
-                      navigator.clipboard.writeText(imageToCopy);
-                      showSuccess('✓ Link/Base64 da imagem copiado com sucesso!');
-                    }}
-                    className="px-3 py-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
-                    title="Copiar link/base64 da imagem"
-                  >
-                    <Copy className="w-3.5 h-3.5" /> Copiar Link da Imagem
-                  </button>
-                  <button
-                    onClick={() => {
-                      const imageToOpen = viewingOriginalFlyer.linkOriginal || viewingOriginalFlyer.imageUrl;
-                      const win = window.open();
-                      if (win) {
-                        win.document.write(`<img src="${imageToOpen}" style="max-width:100%; border-radius:8px; margin: 10px auto; display:block;" /><title>Visualizador - Imagem do Folheto</title>`);
-                      } else {
-                        showError('Erro: Popup bloqueado pelo navegador.');
-                      }
-                    }}
-                    className="px-3 py-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
-                  >
-                    <Eye className="w-3.5 h-3.5" /> Abrir em tamanho real
-                  </button>
+                  
+                  
                 </div>
               </div>
 
@@ -3262,16 +3102,7 @@ export default function DashboardAdmin({ flyers, offers, onUpdateOffer, onAddFly
               </div>
 
               <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end">
-                <button
-                  onClick={() => {
-                    setViewingOriginalFlyer(null);
-                    setViewingOriginalFlyerOffer(null);
-                    setViewOriginalQuality(false);
-                  }}
-                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold shadow-md cursor-pointer transition-all"
-                >
-                  Fechar Visualizador
-                </button>
+                
               </div>
             </motion.div>
           </div>

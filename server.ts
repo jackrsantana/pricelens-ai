@@ -8,8 +8,17 @@ import path from 'path';
 import dotenv from 'dotenv';
 import { GoogleGenAI, Type } from '@google/genai';
 import { jsonrepair } from 'jsonrepair';
+import { KNOWN_MODELS, normalizeModelId, getValidModelOrFallback, parseGeminiError } from './src/lib/geminiManager';
 
 dotenv.config();
+
+// Helper to check if string is a valid YYYY-MM-DD date
+function isValidDateString(dStr: any): boolean {
+  if (typeof dStr !== 'string') return false;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dStr)) return false;
+  const d = new Date(dStr);
+  return d instanceof Date && !isNaN(d.getTime());
+}
 
 const app = express();
 const PORT = 3000;
@@ -40,11 +49,12 @@ function getGeminiClient(): GoogleGenAI | null {
 }
 
 /**
- * Executes a Gemini content generation request with a list of preferred models,
- * multiple retry attempts per model, and exponential backoff to handle rate limits and 503 high-demand errors.
+ * Executes a Gemini content generation request with a preferred model,
+ * fallback models, multiple retry attempts, and exponential backoff to handle rate limits and 503 errors.
  */
 async function generateContentWithRetry(
   ai: GoogleGenAI,
+  preferredModel: string,
   config: {
     contents: any;
     responseMimeType?: string;
@@ -53,17 +63,33 @@ async function generateContentWithRetry(
     maxOutputTokens?: number;
     temperature?: number;
   }
-): Promise<{ text: string; model: string }> {
-  const models = ['gemini-3.5-flash', 'gemini-flash-latest'];
-  const maxRetriesPerModel = 3;
+): Promise<{ text: string; model: string; wasFallbackUsed: boolean; fallbackReason?: string }> {
+  // Normalize preferredModel
+  const normalizedModel = normalizeModelId(preferredModel);
+
+  // Build the list of models to try starting with the preferred one
+  const modelsToTry = [normalizedModel];
+
+  // Fallbacks: list of reliable free models to try if the preferred one fails
+  const reliableFallbacks = ['gemini-3.5-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
+  for (const fallback of reliableFallbacks) {
+    if (!modelsToTry.includes(fallback)) {
+      modelsToTry.push(fallback);
+    }
+  }
+
+  const maxRetriesPerModel = 2;
   let lastError: any = null;
 
-  for (const model of models) {
+  for (let mIdx = 0; mIdx < modelsToTry.length; mIdx++) {
+    const currentModel = modelsToTry[mIdx];
+    const isFallback = mIdx > 0;
+
     for (let attempt = 1; attempt <= maxRetriesPerModel; attempt++) {
       try {
-        console.log(`[Gemini API] Requesting ${model} (Attempt ${attempt}/${maxRetriesPerModel})`);
+        console.log(`[Gemini API] Requesting ${currentModel} (Attempt ${attempt}/${maxRetriesPerModel})${isFallback ? ' [FALLBACK]' : ''}`);
         const response = await ai.models.generateContent({
-          model,
+          model: currentModel,
           contents: config.contents,
           config: {
             responseMimeType: config.responseMimeType,
@@ -75,23 +101,41 @@ async function generateContentWithRetry(
         });
 
         if (response && response.text) {
-          return { text: response.text, model };
+          return {
+            text: response.text,
+            model: currentModel,
+            wasFallbackUsed: isFallback,
+            fallbackReason: isFallback ? `O modelo preferido "${preferredModel}" falhou (${lastError?.message || 'Erro desconhecido'}). O modelo de contingência "${currentModel}" foi utilizado para concluir o processamento.` : undefined
+          };
         }
         throw new Error('O modelo retornou uma resposta de texto vazia.');
       } catch (err: any) {
         lastError = err;
-        console.warn(`[Gemini API Warning] Model ${model} failed on attempt ${attempt}:`, err.message || err);
-        
-        // Wait before retrying (exponential delay: 1s, then 2.5s)
-        if (attempt < maxRetriesPerModel) {
-          const delayMs = attempt * 1500;
+        console.warn(`[Gemini API Warning] Model ${currentModel} failed on attempt ${attempt}:`, err.message || err);
+
+        // Handle rate limits (429) with exponential backoff and potential RetryInfo
+        if (err.status === 429 || (err.message && err.message.includes('429'))) {
+          let delayMs = attempt * 2000;
+          if (err.details && Array.isArray(err.details)) {
+            const retryInfo = err.details.find((d: any) => d['@type'] && d['@type'].includes('RetryInfo'));
+            if (retryInfo && retryInfo.retryDelay) {
+              const seconds = parseInt(retryInfo.retryDelay.replace('s', ''));
+              delayMs = (seconds + 1) * 1000;
+              console.log(`[Gemini API] Detected retryDelay: ${retryInfo.retryDelay}, waiting ${delayMs}ms`);
+            }
+          }
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+        } else if (attempt < maxRetriesPerModel) {
+          const delayMs = attempt * 1000;
           await new Promise((resolve) => setTimeout(resolve, delayMs));
         }
       }
     }
+
+    console.warn(`[Gemini API Contingency] Model ${currentModel} exhausted all retries. Moving to fallback if available.`);
   }
 
-  throw lastError || new Error('Todas as tentativas de geração de conteúdo do Gemini falharam.');
+  throw lastError || new Error('Todas as tentativas de geração de conteúdo do Gemini (incluindo modelos de contingência) falharam.');
 }
 
 // ----------------- In-Memory Extended Database -----------------
@@ -208,17 +252,75 @@ function extractOffersRuleBased(ocrLines: any[], resolvedMarketId: string, flyer
   return offers;
 }
 
+// Endpoint to dynamically retrieve available Gemini models or fall back to known models
+app.get('/api/settings/gemini-models', async (req, res) => {
+  const ai = getGeminiClient();
+  if (!ai) {
+    return res.json({ models: KNOWN_MODELS, source: 'static' });
+  }
+
+  try {
+    console.log('[Gemini Manager] Querying available models from Google Gemini API...');
+    const listResponse = await ai.models.list();
+    const apiModelIds = listResponse.page?.map(m => m.name) || [];
+    console.log(`[Gemini Manager] API returned ${apiModelIds.length} models.`);
+
+    const enrichedModels: typeof KNOWN_MODELS = [];
+
+    // First, process KNOWN_MODELS and check if they are in the API list
+    for (const known of KNOWN_MODELS) {
+      enrichedModels.push({
+        ...known
+      });
+    }
+
+    // Next, check for any models in the API list that are NOT in KNOWN_MODELS and add them
+    for (const apiModelId of apiModelIds) {
+      const normalizedId = apiModelId.replace(/^models\//, '');
+      const alreadyAdded = enrichedModels.some(m => m.id === normalizedId);
+
+      // Only add relevant Gemini models
+      if (!alreadyAdded && (normalizedId.startsWith('gemini-') || normalizedId.includes('flash') || normalizedId.includes('pro'))) {
+        // Skip deprecated models
+        const isProhibited = [
+          'gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro',
+          'gemini-2.0-flash', 'gemini-2.0-pro', 'gemini-2.0-flash-thinking'
+        ].some(p => normalizedId.startsWith(p));
+
+        if (!isProhibited) {
+          const isPro = normalizedId.includes('pro');
+          const isFree = !isPro;
+
+          enrichedModels.push({
+            id: normalizedId,
+            name: `Gemini ${normalizedId.split('-').map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(' ')}`,
+            description: `Modelo dinâmico retornado pela API do Gemini. Tipo: ${isPro ? 'Pro (Avançado)' : 'Flash (Rápido)'}.`,
+            limitations: 'Características específicas do modelo dinâmico.',
+            recommendations: isPro ? ['quality'] : ['fast', 'images', 'ocr'],
+            isFree: isFree
+          });
+        }
+      }
+    }
+
+    return res.json({ models: enrichedModels, source: 'api' });
+  } catch (error: any) {
+    console.warn('[Gemini Manager Warning] Failed to dynamically list models from API, falling back to static list:', error.message || error);
+    return res.json({ models: KNOWN_MODELS, source: 'static', error: error.message });
+  }
+});
+
 // 1. Process Flyer: OCR Text Interpretation using Gemini Text (or fallback)
 app.post('/api/process-flyer', async (req, res) => {
-  const { image, marketId, cityName, startDate, endDate, observations } = req.body;
+  const { image, marketId, cityName, startDate, endDate, observations, geminiModel } = req.body;
 
   if (!image) {
     return res.status(400).json({ error: 'A imagem do folheto é obrigatória.' });
   }
 
   // 1. Check in-memory Cache to avoid redundant API runs
-  // We use a combination of image string length and a prefix of the base64 code as a fast, collision-safe cache key
-  const cacheKey = image.substring(0, 500) + '_' + image.length + '_' + (marketId || '');
+  // We use a combination of image string length, a prefix of the base64 code, and selected model as a fast, collision-safe cache key
+  const cacheKey = image.substring(0, 500) + '_' + image.length + '_' + (marketId || '') + '_' + (geminiModel || '');
   if (flyerCache.has(cacheKey)) {
     console.log('[Cache] Hit! Returning cached flyer results instantly.');
     return res.json(flyerCache.get(cacheKey));
@@ -370,7 +472,7 @@ app.post('/api/process-flyer', async (req, res) => {
 
       console.log('[Gemini Diagnostic] Realizing Gemini Flash Vision API Call with responseSchema...');
       
-      const response = await generateContentWithRetry(ai, {
+      const response = await generateContentWithRetry(ai, geminiModel || 'gemini-3.5-flash', {
         contents: [
           {
             inlineData: {
@@ -445,8 +547,24 @@ app.post('/api/process-flyer', async (req, res) => {
 
       const extractedProducts = parsedData.produtos || [];
       const detectedEstablishmentName = parsedData.estabelecimento?.nome || null;
-      const detectedStartDate = parsedData.validade_oferta?.inicio || null;
-      const detectedEndDate = parsedData.validade_oferta?.fim || null;
+      
+      // Clean and validate dates from LLM response
+      let rawStartDate = parsedData.validade_oferta?.inicio || null;
+      let rawEndDate = parsedData.validade_oferta?.fim || null;
+
+      if (!isValidDateString(rawStartDate)) rawStartDate = null;
+      if (!isValidDateString(rawEndDate)) rawEndDate = null;
+
+      // Rule: If we have one valid date but not the other, set them equal to each other
+      // (This correctly supports single-day validities, matching them exactly)
+      if (rawStartDate && !rawEndDate) {
+        rawEndDate = rawStartDate;
+      } else if (rawEndDate && !rawStartDate) {
+        rawStartDate = rawEndDate;
+      }
+
+      const detectedStartDate = rawStartDate;
+      const detectedEndDate = rawEndDate;
 
       console.log(`[Pipeline] Processing ${extractedProducts.length} multimodal extracted products...`);
       
@@ -509,9 +627,21 @@ app.post('/api/process-flyer', async (req, res) => {
       });
 
       const cityNameTruncated = (cityName || parsedData.estabelecimento?.cidade || 'São Gotardo').substring(0, 140);
-      const startDateTruncated = (detectedStartDate || resolvedStartDate || '').substring(0, 45);
-      const endDateTruncated = (detectedEndDate || resolvedEndDate || '').substring(0, 45);
-      const observationsTruncated = (observations || `Processado com Gemini 3.5 Flash Vision Multimodal (${finalOffers.length} ofertas estruturadas com coordenadas espaciais).`).substring(0, 950);
+      
+      // Final fallback/resolutions
+      let finalStart = detectedStartDate || resolvedStartDate;
+      let finalEnd = detectedEndDate || resolvedEndDate;
+
+      if (!isValidDateString(finalStart)) finalStart = new Date().toISOString().split('T')[0];
+      if (!isValidDateString(finalEnd)) finalEnd = finalStart;
+
+      // Double check single-day condition
+      if (finalStart && !finalEnd) finalEnd = finalStart;
+      if (finalEnd && !finalStart) finalStart = finalEnd;
+
+      const startDateTruncated = finalStart.substring(0, 45);
+      const endDateTruncated = finalEnd.substring(0, 45);
+      const observationsTruncated = (observations || `Processado com ${response.model} Multimodal (${finalOffers.length} ofertas estruturadas com coordenadas espaciais).`).substring(0, 950);
 
       const newFlyer: Flyer = {
         id: flyerId,
@@ -523,12 +653,16 @@ app.post('/api/process-flyer', async (req, res) => {
         numPages: 1,
         status: 'processed',
         observations: observationsTruncated,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        modelUsed: response.model
       };
 
       const responseData = {
         flyer: newFlyer,
         offers: finalOffers,
+        modelUsed: response.model,
+        wasFallbackUsed: response.wasFallbackUsed,
+        fallbackReason: response.fallbackReason,
         detectedEstablishment: parsedData.estabelecimento ? {
           name: parsedData.estabelecimento.nome || 'Estabelecimento Detectado',
           cnpj: parsedData.estabelecimento.cnpj || null,
@@ -548,7 +682,7 @@ app.post('/api/process-flyer', async (req, res) => {
           geminiUsed: true
         },
         debug: {
-          promptSent: promptText,
+          promptSent: prompt,
           rawResponse: rawResponseText
         }
       };
@@ -559,8 +693,13 @@ app.post('/api/process-flyer', async (req, res) => {
 
     } catch (apiError: any) {
       console.error('[Pipeline Error] Multimodal Gemini Call failed:', apiError.message || apiError);
+      const errDetails = parseGeminiError(apiError, geminiModel || 'gemini-3.5-flash');
       return res.status(500).json({ 
-        error: `Falha na análise do Gemini: ${apiError.message || 'Erro desconhecido'}. Por favor, verifique sua chave de API e tente novamente.` 
+        error: errDetails.friendlyMessage,
+        suggestedAction: errDetails.suggestedAction,
+        isQuotaExceeded: errDetails.isQuotaExceeded,
+        isKeyInvalid: errDetails.isKeyInvalid,
+        isModelUnavailable: errDetails.isModelUnavailable
       });
     }
   } else {
@@ -573,7 +712,7 @@ app.post('/api/process-flyer', async (req, res) => {
 
 // 2. Normalize single product name (AI intelligence)
 app.post('/api/normalize', async (req, res) => {
-  const { originalName } = req.body;
+  const { originalName, geminiModel } = req.body;
 
   if (!originalName) {
     return res.status(400).json({ error: 'Missing originalName parameter.' });
@@ -601,7 +740,7 @@ app.post('/api/normalize', async (req, res) => {
         Responda estritamente no formato JSON.
       `;
 
-      const { text } = await generateContentWithRetry(ai, {
+      const { text } = await generateContentWithRetry(ai, geminiModel || 'gemini-3.5-flash', {
         contents: prompt,
         responseMimeType: 'application/json',
         responseSchema: {
@@ -658,7 +797,7 @@ app.post('/api/normalize', async (req, res) => {
 
 // 3. AI Copilot Chatgrounded on full local historical price database
 app.post('/api/ai-chat', async (req, res) => {
-  const { messages, pricingData } = req.body;
+  const { messages, pricingData, geminiModel } = req.body;
 
   if (!messages || !Array.isArray(messages)) {
     return res.status(400).json({ error: 'Missing or invalid messages parameter.' });
@@ -717,10 +856,12 @@ app.post('/api/ai-chat', async (req, res) => {
         parts: [{ text: m.text }]
       }));
 
-      const { text: responseText } = await generateContentWithRetry(ai, {
+      const response = await generateContentWithRetry(ai, geminiModel || 'gemini-3.5-flash', {
         contents: contents,
         systemInstruction: systemPrompt
       });
+
+      const responseText = response.text;
 
       if (responseText) {
         return res.json({ text: responseText });

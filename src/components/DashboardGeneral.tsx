@@ -6,7 +6,7 @@
 import React, { useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import { Market, Flyer, Offer, CanonicalProduct } from '../types';
-import { MARKETS, CANONICAL_PRODUCTS, calculateBasketHistory, calculateMarketRanking, formatDateToLocal } from '../data';
+import { calculateBasketHistory, calculateMarketRanking, formatDateToLocal } from '../data';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 import { Store, Tag, Sparkles, TrendingUp, DollarSign, Eye, BadgeAlert, CheckCircle2 } from 'lucide-react';
 import { APP_CONFIG } from '../config/app';
@@ -15,10 +15,30 @@ import FlyerOriginModal from './FlyerOriginModal';
 interface Props {
   flyers: Flyer[];
   offers: Offer[];
+  markets: Market[];
+  canonicalProducts: CanonicalProduct[];
   onNavigate: (tab: string) => void;
+  isLoading?: boolean;
 }
 
-export default function DashboardGeneral({ flyers, offers, onNavigate }: Props) {
+export default function DashboardGeneral({ flyers, offers, markets, canonicalProducts, onNavigate, isLoading }: Props) {
+  if (isLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center h-96 space-y-4">
+        <div className="w-8 h-8 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
+        <p className="text-slate-500 font-medium">Carregando painel geral...</p>
+      </div>
+    );
+  }
+
+  if (markets.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-96 space-y-4">
+        <Store className="w-8 h-8 text-slate-300" />
+        <p className="text-slate-500 font-medium">Nenhum dado disponível no painel geral.</p>
+      </div>
+    );
+  }
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [selectedOfferForModal, setSelectedOfferForModal] = useState<Offer | null>(null);
 
@@ -60,7 +80,7 @@ export default function DashboardGeneral({ flyers, offers, onNavigate }: Props) 
     });
 
     // Compute potential savings on a standard checkout
-    const rankings = calculateMarketRanking(flyers, offers);
+    const rankings = calculateMarketRanking(flyers, offers, markets);
     const bestIndex = rankings.length > 0 ? Math.min(...rankings.map(r => r.averagePriceIndex)) : 1.0;
     const worstIndex = rankings.length > 0 ? Math.max(...rankings.map(r => r.averagePriceIndex)) : 1.0;
     const potentialSavingsPct = Math.max(0, worstIndex - bestIndex) * 100;
@@ -103,10 +123,10 @@ export default function DashboardGeneral({ flyers, offers, onNavigate }: Props) 
   // 3. Find top 3 deals of the week with high-end classification
   const topWeeklyDeals = useMemo(() => {
     const prodMap = new Map<string, CanonicalProduct>();
-    CANONICAL_PRODUCTS.forEach(p => prodMap.set(p.id, p));
+    canonicalProducts.forEach(p => prodMap.set(p.id, p));
 
     const marketMap = new Map<string, string>();
-    MARKETS.forEach(m => marketMap.set(m.id, m.name));
+    markets.forEach(m => marketMap.set(m.id, m.name));
 
     // Calculate historic averages
     const productAvgs = new Map<string, { sum: number; count: number }>();

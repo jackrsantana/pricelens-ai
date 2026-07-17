@@ -5,8 +5,8 @@
 
 import React, { useState, useMemo } from 'react';
 import { motion } from 'motion/react';
-import { Offer, Flyer, Market } from '../types';
-import { MARKETS, CANONICAL_PRODUCTS, CATEGORIES, calculateMarketRanking, formatDateToLocal } from '../data';
+import { Offer, Flyer, Market, CanonicalProduct, Category } from '../types';
+import { calculateMarketRanking, formatDateToLocal } from '../data';
 import { APP_CONFIG } from '../config/app';
 import { Store, TrendingUp, Info, Eye, ClipboardCheck, Scale, Award, CheckCircle2 } from 'lucide-react';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
@@ -15,9 +15,13 @@ import FlyerOriginModal from './FlyerOriginModal';
 interface Props {
   flyers: Flyer[];
   offers: Offer[];
+  markets: Market[];
+  canonicalProducts: CanonicalProduct[];
+  categories: Category[];
+  isLoading?: boolean;
 }
 
-export default function DashboardMarkets({ flyers, offers }: Props) {
+export default function DashboardMarkets({ flyers, offers, markets, canonicalProducts, categories, isLoading }: Props) {
   const [selectedMarketId, setSelectedMarketId] = useState<string>('m-lopes');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
@@ -25,16 +29,16 @@ export default function DashboardMarkets({ flyers, offers }: Props) {
 
   // Calculate market rankings using traditional deterministic relative price index algorithms
   const marketRankings = useMemo(() => {
-    return calculateMarketRanking(flyers, offers);
-  }, [flyers, offers]);
+    return calculateMarketRanking(flyers, offers, markets);
+  }, [flyers, offers, markets]);
 
   const selectedRanking = useMemo(() => {
     return marketRankings.find(r => r.id === selectedMarketId) || marketRankings[0];
   }, [marketRankings, selectedMarketId]);
 
   const selectedMarket = useMemo(() => {
-    return MARKETS.find(m => m.id === selectedMarketId) || MARKETS[0];
-  }, [selectedMarketId]);
+    return markets.find(m => m.id === selectedMarketId) || markets[0];
+  }, [selectedMarketId, markets]);
 
   // Active offers of this market
   const activeOffers = useMemo(() => {
@@ -43,7 +47,7 @@ export default function DashboardMarkets({ flyers, offers }: Props) {
 
     // Map canonical products
     const prodMap = new Map();
-    CANONICAL_PRODUCTS.forEach(p => prodMap.set(p.id, p));
+    canonicalProducts.forEach(p => prodMap.set(p.id, p));
 
     return mOffers.map(o => {
       const prod = o.productCanonicalId ? prodMap.get(o.productCanonicalId) : null;
@@ -54,15 +58,15 @@ export default function DashboardMarkets({ flyers, offers }: Props) {
         brand: prod ? prod.brand : 'Genérica'
       };
     }).filter(o => categoryFilter === 'all' || o.category === categoryFilter);
-  }, [flyers, offers, selectedMarketId, categoryFilter]);
+  }, [flyers, offers, selectedMarketId, categoryFilter, canonicalProducts]);
 
   // Compute category competitiveness stats for the selected market
   // Category Index = (Market's avg price in category / City's avg price in category) * 100
   const categoryStats = useMemo(() => {
     const prodMap = new Map<string, string>();
-    CANONICAL_PRODUCTS.forEach(p => prodMap.set(p.id, p.category));
+    canonicalProducts.forEach(p => prodMap.set(p.id, p.category));
 
-    return CATEGORIES.map(cat => {
+    return categories.map(cat => {
       const cityOffers = offers.filter(o => o.productCanonicalId && prodMap.get(o.productCanonicalId) === cat.id);
       const marketOffers = cityOffers.filter(o => o.marketId === selectedMarketId);
 
@@ -78,7 +82,7 @@ export default function DashboardMarkets({ flyers, offers }: Props) {
         offerCount: marketOffers.length
       };
     });
-  }, [offers, selectedMarketId]);
+  }, [offers, selectedMarketId, canonicalProducts, categories]);
 
   // Compute simulated historical Price Index evolution for this market over the weeks
   const marketHistoryData = useMemo(() => {
@@ -132,6 +136,33 @@ export default function DashboardMarkets({ flyers, offers }: Props) {
     setIsModalOpen(true);
   };
 
+  if (isLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center h-96 space-y-4">
+        <div className="w-8 h-8 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
+        <p className="text-slate-500 font-medium">Carregando dados do mercado...</p>
+      </div>
+    );
+  }
+
+  if (markets.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-96 space-y-4">
+        <Store className="w-8 h-8 text-slate-300" />
+        <p className="text-slate-500 font-medium">Nenhum mercado disponível para análise.</p>
+      </div>
+    );
+  }
+
+  if (!selectedMarket || !selectedRanking) {
+    return (
+      <div className="flex flex-col items-center justify-center h-96 space-y-4">
+        <Store className="w-8 h-8 text-slate-300" />
+        <p className="text-slate-500 font-medium">Mercado selecionado não encontrado.</p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -155,7 +186,7 @@ export default function DashboardMarkets({ flyers, offers }: Props) {
           onChange={(e) => setSelectedMarketId(e.target.value)}
           className="w-full sm:w-64 text-sm px-4 py-2.5 bg-slate-50 border-none rounded-xl outline-none text-slate-700 font-bold"
         >
-          {MARKETS.map(m => (
+          {markets.map(m => (
             <option key={m.id} value={m.id}>{m.name}</option>
           ))}
         </select>
@@ -257,7 +288,9 @@ export default function DashboardMarkets({ flyers, offers }: Props) {
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               {categoryStats.map(cat => {
                 const isCompetitive = cat.priceIndex && cat.priceIndex < 100;
-                return (
+                
+
+  return (
                   <div key={cat.id} className="p-3 bg-slate-50 rounded-2xl border border-slate-100 flex flex-col justify-between">
                     <div>
                       <span className="text-[10px] font-bold text-slate-400 block uppercase">{cat.name}</span>

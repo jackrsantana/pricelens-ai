@@ -5,8 +5,8 @@
 
 import React, { useState, useMemo } from 'react';
 import { motion } from 'motion/react';
-import { Offer, Flyer, CanonicalProduct } from '../types';
-import { CANONICAL_PRODUCTS, MARKETS, CATEGORIES } from '../data';
+import { Offer, Flyer, CanonicalProduct, Category, Market } from '../types';
+import { } from '../data';
 import { APP_CONFIG } from '../config/app';
 import { Sparkles, ArrowUpDown, Filter, Eye, ShieldCheck, BadgeHelp, CheckCircle2 } from 'lucide-react';
 import FlyerOriginModal from './FlyerOriginModal';
@@ -14,9 +14,30 @@ import FlyerOriginModal from './FlyerOriginModal';
 interface Props {
   flyers: Flyer[];
   offers: Offer[];
+  canonicalProducts: CanonicalProduct[];
+  categories: Category[];
+  markets: Market[];
+  isLoading?: boolean;
 }
 
-export default function DashboardSmartOffers({ flyers, offers }: Props) {
+export default function DashboardSmartOffers({ flyers, offers, canonicalProducts, categories, markets, isLoading }: Props) {
+  if (isLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center h-96 space-y-4">
+        <div className="w-8 h-8 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
+        <p className="text-slate-500 font-medium">Carregando ofertas inteligentes...</p>
+      </div>
+    );
+  }
+
+  if (canonicalProducts.length === 0 || offers.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-96 space-y-4">
+        <Sparkles className="w-8 h-8 text-slate-300" />
+        <p className="text-slate-500 font-medium">Nenhuma oferta ou produto disponível no momento.</p>
+      </div>
+    );
+  }
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedClassification, setSelectedClassification] = useState<string>('all');
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
@@ -64,10 +85,10 @@ export default function DashboardSmartOffers({ flyers, offers }: Props) {
   // 3. Score and classify all active promotions
   const smartOffers = useMemo(() => {
     const prodMap = new Map<string, CanonicalProduct>();
-    CANONICAL_PRODUCTS.forEach(p => prodMap.set(p.id, p));
+    canonicalProducts.forEach(p => prodMap.set(p.id, p));
 
     const marketMap = new Map<string, string>();
-    MARKETS.forEach(m => marketMap.set(m.id, m.name));
+    markets.forEach(m => marketMap.set(m.id, m.name));
 
     // Get active offers (from active flyers)
     const activeOffers = offers.filter(o => o.productCanonicalId && activeFlyerIds.includes(o.flyerId));
@@ -134,7 +155,7 @@ export default function DashboardSmartOffers({ flyers, offers }: Props) {
         borderStyle: borderColor
       };
     }).sort((a, b) => b.discountPercent - a.discountPercent); // highest discount relative to average first
-  }, [offers, activeFlyerIds, productAverages]);
+  }, [offers, activeFlyerIds, productAverages, canonicalProducts, markets]);
 
   // Filter smart offers
   const filteredSmartOffers = useMemo(() => {
@@ -224,7 +245,7 @@ export default function DashboardSmartOffers({ flyers, offers }: Props) {
             className="text-xs px-3 py-2 bg-slate-50 border-none rounded-xl outline-none text-slate-700 font-bold flex-1 sm:flex-initial"
           >
             <option value="all">Todas as Categorias</option>
-            {CATEGORIES.map(c => (
+            {categories.map(c => (
               <option key={c.id} value={c.id}>{c.name}</option>
             ))}
           </select>

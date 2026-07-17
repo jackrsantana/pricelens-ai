@@ -12,5 +12,9 @@ export const APP_CONFIG = {
   timezone: "America/Sao_Paulo",
   contactEmail: "suporte@pricelens.ai",
   adminEmailDomain: "pricelens.ai",
-  fallbackAdminEmail: "admin@pricelens.ai"
+  fallbackAdminEmail: "admin@pricelens.ai",
+  geminiModels: [
+    { id: "gemini-3.5-flash", name: "Gemini 3.5 Flash", description: "Padrão (Rápido e Eficiente)" },
+    { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro", description: "Avançado (Mais preciso)" }
+  ]
 };

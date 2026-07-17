@@ -9,84 +9,14 @@ export const CITIES: City[] = [
   { id: 'sao-gotardo', name: 'São Gotardo', state: 'MG' }
 ];
 
-export const MARKETS: Market[] = [
-  { id: 'm-lopes', name: 'Supermercado Lopes', address: 'Av. Rui Barbosa, 345, Centro, São Gotardo - MG', cityId: 'sao-gotardo' },
-  { id: 'm-abc', name: 'Sacolão e Supermercado ABC', address: 'Rua Bento de Sousa, 120, Centro, São Gotardo - MG', cityId: 'sao-gotardo' },
-  { id: 'm-real', name: 'Supermercado Real', address: 'Av. Pio XII, 890, Alto da Colina, São Gotardo - MG', cityId: 'sao-gotardo' },
-  { id: 'm-sao-gotardo', name: 'Supermercado São Gotardo', address: 'Rua Coronel Frederico, 14, Centro, São Gotardo - MG', cityId: 'sao-gotardo' },
-  { id: 'm-martminas', name: 'Mart Minas Atacado', address: 'Rodovia MG-235, Km 82, São Gotardo - MG', cityId: 'sao-gotardo' }
-];
+export const MARKETS: Market[] = [];
 
-export const CATEGORIES: Category[] = [
-  { id: 'mercearia', name: 'Mercearia', icon: 'ShoppingBag' },
-  { id: 'acougue', name: 'Açougue', icon: 'Beef' },
-  { id: 'hortifruti', name: 'Hortifrúti', icon: 'Apple' },
-  { id: 'bebidas', name: 'Bebidas', icon: 'CupSoda' },
-  { id: 'limpeza', name: 'Limpeza', icon: 'Sparkles' },
-  { id: 'higiene', name: 'Higiene', icon: 'Heart' }
-];
+export const CATEGORIES: Category[] = [];
 
-export const CANONICAL_PRODUCTS: CanonicalProduct[] = [
-  // Mercearia
-  { id: 'p-arroz-camil-5k', name: 'Arroz Branco Camil Tipo 1', brand: 'Camil', category: 'mercearia', weightVolume: '5kg', unit: 'kg' },
-  { id: 'p-arroz-tiojoao-5k', name: 'Arroz Branco Tio João Tipo 1', brand: 'Tio João', category: 'mercearia', weightVolume: '5kg', unit: 'kg' },
-  { id: 'p-feijao-kicaldo-1k', name: 'Feijão Carioca Kicaldo Tipo 1', brand: 'Kicaldo', category: 'mercearia', weightVolume: '1kg', unit: 'kg' },
-  { id: 'p-cafe-pilao-500g', name: 'Café Torrado e Moído Pilão', brand: 'Pilão', category: 'mercearia', weightVolume: '500g', unit: 'un' },
-  { id: 'p-oleo-lisa-900', name: 'Óleo de Soja Lisa', brand: 'Lisa', category: 'mercearia', weightVolume: '900ml', unit: 'ml' },
-  { id: 'p-acucar-uniao-1k', name: 'Açúcar Refinado União', brand: 'União', category: 'mercearia', weightVolume: '1kg', unit: 'kg' },
-  { id: 'p-macarrao-galo-500g', name: 'Espaguete Sêmola Galo', brand: 'Galo', category: 'mercearia', weightVolume: '500g', unit: 'un' },
-
-  // Açougue
-  { id: 'p-contra-file-kg', name: 'Contra Filé Bovino Resfriado', brand: 'Frigotas', category: 'acougue', weightVolume: '1kg', unit: 'kg' },
-  { id: 'p-coxa-sobrecoxa-kg', name: 'Coxa com Sobrecoxa de Frango', brand: 'Pif Paf', category: 'acougue', weightVolume: '1kg', unit: 'kg' },
-  { id: 'p-acem-bovino-kg', name: 'Acém Bovino Sem Osso', brand: 'Frigotas', category: 'acougue', weightVolume: '1kg', unit: 'kg' },
-  { id: 'p-pernil-suino-kg', name: 'Pernil Suíno com Couro', brand: 'Saudali', category: 'acougue', weightVolume: '1kg', unit: 'kg' },
-
-  // Hortifruti
-  { id: 'p-tomate-kg', name: 'Tomate Italiano Selecionado', brand: 'Produtor Regional', category: 'hortifruti', weightVolume: '1kg', unit: 'kg' },
-  { id: 'p-batata-kg', name: 'Batata Monalisa Lavada', brand: 'Produtor Regional', category: 'hortifruti', weightVolume: '1kg', unit: 'kg' },
-  { id: 'p-cebola-kg', name: 'Cebola Nacional', brand: 'Produtor Regional', category: 'hortifruti', weightVolume: '1kg', unit: 'kg' },
-  { id: 'p-banana-prata-kg', name: 'Banana Prata de Minas', brand: 'Produtor Regional', category: 'hortifruti', weightVolume: '1kg', unit: 'kg' },
-
-  // Bebidas
-  { id: 'p-cocacola-2l', name: 'Refrigerante Coca-Cola Garrafa', brand: 'Coca-Cola', category: 'bebidas', weightVolume: '2L', unit: 'L' },
-  { id: 'p-cerveja-skol-350', name: 'Cerveja Skol Lata', brand: 'Skol', category: 'bebidas', weightVolume: '350ml', unit: 'ml' },
-  { id: 'p-suco-ades-1l', name: 'Suco de Soja AdeS Original', brand: 'AdeS', category: 'bebidas', weightVolume: '1L', unit: 'L' },
-
-  // Limpeza
-  { id: 'p-omo-lavagem-16', name: 'Sabão em Pó Omo Lavagem Perfeita', brand: 'Omo', category: 'limpeza', weightVolume: '1.6kg', unit: 'kg' },
-  { id: 'p-detergente-ype-500', name: 'Detergente Líquido Ypê Neutro', brand: 'Ypê', category: 'limpeza', weightVolume: '500ml', unit: 'un' },
-
-  // Higiene
-  { id: 'p-shampoo-colgate-350', name: 'Shampoo Seda Ceramidas', brand: 'Seda', category: 'higiene', weightVolume: '325ml', unit: 'un' },
-  { id: 'p-creme-dental-colgate', name: 'Creme Dental Colgate Tripla Ação', brand: 'Colgate', category: 'higiene', weightVolume: '90g', unit: 'un' }
-];
+export const CANONICAL_PRODUCTS: CanonicalProduct[] = [];
 
 // Helper to determine product typical baseline price
-export const PRODUCT_BASE_PRICES: Record<string, number> = {
-  'p-arroz-camil-5k': 26.90,
-  'p-arroz-tiojoao-5k': 29.90,
-  'p-feijao-kicaldo-1k': 7.80,
-  'p-cafe-pilao-500g': 18.90,
-  'p-oleo-lisa-900': 6.50,
-  'p-acucar-uniao-1k': 4.20,
-  'p-macarrao-galo-500g': 3.60,
-  'p-contra-file-kg': 39.90,
-  'p-coxa-sobrecoxa-kg': 8.90,
-  'p-acem-bovino-kg': 26.90,
-  'p-pernil-suino-kg': 15.90,
-  'p-tomate-kg': 5.90,
-  'p-batata-kg': 4.90,
-  'p-cebola-kg': 4.50,
-  'p-banana-prata-kg': 5.50,
-  'p-cocacola-2l': 8.90,
-  'p-cerveja-skol-350': 2.99,
-  'p-suco-ades-1l': 7.20,
-  'p-omo-lavagem-16': 18.90,
-  'p-detergente-ype-500': 2.19,
-  'p-shampoo-colgate-350': 9.80,
-  'p-creme-dental-colgate': 3.49
-};
+export const PRODUCT_BASE_PRICES: Record<string, number> = {};
 
 // ----------------- Deterministic Statistics Algorithms -----------------
 
@@ -196,7 +126,7 @@ export function calculateBasketHistory(flyers: Flyer[], offers: Offer[]): { date
 }
 
 // 3. Supermarket Competitiveness Ranking
-export function calculateMarketRanking(flyers: Flyer[], offers: Offer[]): { id: string; name: string; flyerCount: number; offerCount: number; averagePriceIndex: number; estimatedSavings: number }[] {
+export function calculateMarketRanking(flyers: Flyer[], offers: Offer[], markets: Market[] = MARKETS): { id: string; name: string; flyerCount: number; offerCount: number; averagePriceIndex: number; estimatedSavings: number }[] {
   // To evaluate competitiveness objectively without just summing raw prices (as some sell meat which is expensive, some sell cheaper items):
   // We calculate a relative "Price Index" for each market.
   // For each offer of a canonical product in a flyer:
@@ -235,7 +165,7 @@ export function calculateMarketRanking(flyers: Flyer[], offers: Offer[]): { id: 
   const marketOfferCounts: Record<string, number> = {};
   const marketFlyerCounts: Record<string, Set<string>> = {};
 
-  MARKETS.forEach(m => {
+  markets.forEach(m => {
     marketRatios[m.id] = [];
     marketOfferCounts[m.id] = 0;
     marketFlyerCounts[m.id] = new Set<string>();
@@ -259,7 +189,7 @@ export function calculateMarketRanking(flyers: Flyer[], offers: Offer[]): { id: 
     }
   });
 
-  return MARKETS.map(m => {
+  return markets.map(m => {
     const ratios = marketRatios[m.id] || [];
     const avgIndex = ratios.length > 0 ? ratios.reduce((a, b) => a + b, 0) / ratios.length : 1.0;
     
@@ -280,12 +210,12 @@ export function calculateMarketRanking(flyers: Flyer[], offers: Offer[]): { id: 
 }
 
 // 4. Product Price History analysis
-export function getProductPriceHistory(flyers: Flyer[], offers: Offer[], productId: string): { date: string; marketName: string; price: number }[] {
+export function getProductPriceHistory(flyers: Flyer[], offers: Offer[], productId: string, markets: Market[] = MARKETS): { date: string; marketName: string; price: number }[] {
   const flyerMap = new Map<string, { marketId: string; startDate: string }>();
   flyers.forEach(f => flyerMap.set(f.id, { marketId: f.marketId, startDate: f.startDate }));
 
   const marketMap = new Map<string, string>();
-  MARKETS.forEach(m => marketMap.set(m.id, m.name));
+  markets.forEach(m => marketMap.set(m.id, m.name));
 
   return offers
     .filter(o => o.productCanonicalId === productId)
@@ -301,7 +231,7 @@ export function getProductPriceHistory(flyers: Flyer[], offers: Offer[], product
 }
 
 export function formatDateToLocal(isoString: string): string {
-  if (!isoString) return '';
+  if (!isoString || isoString === 'Invalid Date') return '';
   const parts = isoString.split('-');
   if (parts.length < 3) return isoString;
   return `${parts[2]}/${parts[1]}/${parts[0].slice(2)}`;

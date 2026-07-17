@@ -5,8 +5,8 @@
 
 import React, { useState, useMemo } from 'react';
 import { motion } from 'motion/react';
-import { Offer, Flyer, CanonicalProduct } from '../types';
-import { CANONICAL_PRODUCTS, MARKETS, formatDateToLocal } from '../data';
+import { Offer, Flyer, CanonicalProduct, Market } from '../types';
+import { formatDateToLocal } from '../data';
 import { APP_CONFIG } from '../config/app';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, Legend, CartesianGrid, BarChart, Bar } from 'recharts';
 import { Search, TrendingUp, TrendingDown, Minus, Info, AlertCircle, Sparkles } from 'lucide-react';
@@ -14,24 +14,27 @@ import { Search, TrendingUp, TrendingDown, Minus, Info, AlertCircle, Sparkles } 
 interface Props {
   flyers: Flyer[];
   offers: Offer[];
+  canonicalProducts: CanonicalProduct[];
+  markets: Market[];
+  isLoading?: boolean;
 }
 
-export default function DashboardProducts({ flyers, offers }: Props) {
+export default function DashboardProducts({ flyers, offers, canonicalProducts, markets, isLoading }: Props) {
   const [selectedProductId, setSelectedProductId] = useState<string>('p-arroz-camil-5k');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
   // Filter canonical products based on search
   const filteredProducts = useMemo(() => {
-    return CANONICAL_PRODUCTS.filter(p => 
-      p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.brand.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.category.toLowerCase().includes(searchQuery.toLowerCase())
+    return canonicalProducts.filter(p => 
+      p.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      p.brand?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      p.category?.toLowerCase().includes(searchQuery.toLowerCase())
     );
-  }, [searchQuery]);
+  }, [searchQuery, canonicalProducts]);
 
   const selectedProduct = useMemo(() => {
-    return CANONICAL_PRODUCTS.find(p => p.id === selectedProductId) || CANONICAL_PRODUCTS[0];
-  }, [selectedProductId]);
+    return canonicalProducts.find(p => p.id === selectedProductId) || canonicalProducts[0];
+  }, [selectedProductId, canonicalProducts]);
 
   // Map flyer ID to start date
   const flyerMap = useMemo(() => {
@@ -56,7 +59,7 @@ export default function DashboardProducts({ flyers, offers }: Props) {
         date: formatDateToLocal(weekStart)
       };
 
-      MARKETS.forEach(m => {
+      markets.forEach(m => {
         const mOffer = weekOffers.find(o => o.marketId === m.id);
         if (mOffer) {
           entry[m.name] = mOffer.price;
@@ -65,7 +68,7 @@ export default function DashboardProducts({ flyers, offers }: Props) {
 
       return entry;
     });
-  }, [flyers, offers, selectedProductId]);
+  }, [flyers, offers, selectedProductId, markets]);
 
   // Compute stats (Min, Max, Avg, Inflation, Trend)
   const productStats = useMemo(() => {
@@ -152,7 +155,7 @@ export default function DashboardProducts({ flyers, offers }: Props) {
     const prodOffers = offers.filter(o => o.productCanonicalId === selectedProductId && activeFlyerIds.includes(o.flyerId));
 
     const marketMap = new Map<string, string>();
-    MARKETS.forEach(m => marketMap.set(m.id, m.name));
+    markets.forEach(m => marketMap.set(m.id, m.name));
 
     return prodOffers.map(o => ({
       id: o.id,
@@ -163,10 +166,37 @@ export default function DashboardProducts({ flyers, offers }: Props) {
       promotionType: o.promotionType || 'Normal',
       rules: o.rules
     })).sort((a, b) => a.price - b.price); // Cheapest first
-  }, [offers, selectedProductId, flyers]);
+  }, [offers, selectedProductId, flyers, markets]);
 
   // Colors for lines
   const marketColors = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
+
+  if (isLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center h-96 space-y-4">
+        <Sparkles className="w-8 h-8 text-indigo-300 animate-pulse" />
+        <p className="text-slate-500 font-medium">Carregando análise de produtos...</p>
+      </div>
+    );
+  }
+
+  if (canonicalProducts.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-96 space-y-4">
+        <AlertCircle className="w-8 h-8 text-slate-300" />
+        <p className="text-slate-500 font-medium">Nenhum produto disponível para análise.</p>
+      </div>
+    );
+  }
+
+  if (!selectedProduct) {
+    return (
+      <div className="flex flex-col items-center justify-center h-96 space-y-4">
+        <AlertCircle className="w-8 h-8 text-slate-300" />
+        <p className="text-slate-500 font-medium">Produto selecionado não encontrado.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -268,7 +298,7 @@ export default function DashboardProducts({ flyers, offers }: Props) {
                     contentStyle={{ backgroundColor: '#ffffff', borderRadius: '12px', border: '1px solid #f1f5f9' }}
                   />
                   <Legend tick={{ fontSize: 11 }} iconType="circle" wrapperStyle={{ paddingTop: '10px' }} />
-                  {MARKETS.map((m, idx) => (
+                  {markets.map((m, idx) => (
                     <Line
                       key={m.id}
                       type="monotone"

@@ -1,0 +1,5 @@
+hello
+<button class="text-indigo-600 rounded-lg">delete me</button>
+world
+<button class="safe">keep me</button>
+end

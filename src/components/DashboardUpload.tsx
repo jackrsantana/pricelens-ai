@@ -5,18 +5,21 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Flyer, Offer, Market } from '../types';
-import { CITIES, CANONICAL_PRODUCTS, MARKETS } from '../data';
+import { Flyer, Offer, Market, UploadSession } from '../types';
+import { CITIES } from '../data';
 import { APP_CONFIG } from '../config/app';
 import { db } from '../lib/firebase';
-import { setDoc, doc } from 'firebase/firestore';
+import { doc } from 'firebase/firestore';
+import { FirestoreRepository } from '../services/FirestoreRepository';
+import { useQueryClient } from '@tanstack/react-query';
 import { UploadCloud, Calendar, Eye, MapPin, Sparkles, CheckCircle2, ChevronRight, AlertTriangle, FileImage, Image as ImageIcon, Trash2, Bug, Code, RefreshCw, Copy, Plus, Store, X, AlertCircle } from 'lucide-react';
+import DashboardUploadAudit from "./DashboardUploadAudit";
 
 interface Props {
   onAddFlyerAndOffers: (flyer: Flyer, offers: Offer[]) => void;
   markets: Market[];
   uploadSession: any;
-  setUploadSession: React.Dispatch<React.SetStateAction<any>>;
+  setUploadSession: React.Dispatch<React.SetStateAction<any>>; canonicalProducts?: any[]; categories?: any[];
 }
 
 // A high-quality base64 mock flyer of "Supermercado Lopes" to allow seamless testing without requiring real uploads
@@ -29,11 +32,12 @@ interface PipelineStatusStep {
   details?: string;
 }
 
-export default function DashboardUpload({ onAddFlyerAndOffers, markets = [], uploadSession, setUploadSession }: Props) {
+export default function DashboardUpload({ onAddFlyerAndOffers, markets = [], uploadSession, setUploadSession, canonicalProducts = [], categories = [] }: Props) {
+  const queryClient = useQueryClient();
   const {
     selectedFile,
     originalFile,
-    isProcessing,
+    status,
     marketId,
     cityId,
     startDate,
@@ -46,6 +50,7 @@ export default function DashboardUpload({ onAddFlyerAndOffers, markets = [], upl
     debugData,
     pipelineSteps,
     detectedNewMarket,
+    geminiModel
   } = uploadSession;
 
   const [dragActive, setDragActive] = useState<boolean>(false);
@@ -218,21 +223,24 @@ export default function DashboardUpload({ onAddFlyerAndOffers, markets = [], upl
   const handleUploadAndProcess = async () => {
     if (!selectedFile) return;
 
+    const activeModel = localStorage.getItem('gemini_model') || 'gemini-3.5-flash';
+    const activeModelLabel = `Análise multimodal (${activeModel})`;
+
     updateSession({
-      isProcessing: true,
+      status: 'processing',
       error: null,
       debugData: null,
       pipelineSteps: [
         { id: 1, label: 'Carregamento do folheto', status: 'completed', details: '✓ Imagem recebida com sucesso e pronta para análise.' },
         { id: 2, label: 'Transmissão segura para a IA', status: 'processing', details: 'Transmitindo imagem do folheto para processamento...' },
-        { id: 3, label: 'Análise multimodal Gemini Flash Vision', status: 'pending', details: 'Aguardando...' },
+        { id: 3, label: activeModelLabel, status: 'pending', details: 'Aguardando...' },
         { id: 4, label: 'Extração estruturada e Mapeamento de Coordenadas', status: 'pending', details: 'Aguardando...' },
         { id: 5, label: 'Normalização canônica e validação do lote', status: 'pending', details: 'Aguardando...' }
-      ]
-    });
+        ]
+      });
 
-    const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-    const startTimeTotal = Date.now();
+      const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+      const startTimeTotal = Date.now();
 
     try {
       await delay(400);
@@ -241,7 +249,7 @@ export default function DashboardUpload({ onAddFlyerAndOffers, markets = [], upl
         pipelineSteps: [
           { id: 1, label: 'Carregamento do folheto', status: 'completed', details: '✓ Imagem recebida.' },
           { id: 2, label: 'Transmissão segura para a IA', status: 'completed', details: '✓ Transmissão de bytes concluída.' },
-          { id: 3, label: 'Análise multimodal Gemini Flash Vision', status: 'processing', details: 'Gemini está analisando os elementos visuais, textos e preços...' },
+          { id: 3, label: activeModelLabel, status: 'processing', details: `O modelo ${activeModel} está analisando os elementos visuais, textos e preços...` },
           { id: 4, label: 'Extração estruturada e Mapeamento de Coordenadas', status: 'pending', details: 'Aguardando...' },
           { id: 5, label: 'Normalização canônica e validação do lote', status: 'pending', details: 'Aguardando...' }
         ]
@@ -256,7 +264,8 @@ export default function DashboardUpload({ onAddFlyerAndOffers, markets = [], upl
           cityName: CITIES.find(c => c.id === cityId)?.name || APP_CONFIG.defaultCityShort,
           startDate,
           endDate,
-          observations
+          observations,
+          geminiModel: activeModel
         })
       });
 
@@ -272,7 +281,7 @@ export default function DashboardUpload({ onAddFlyerAndOffers, markets = [], upl
         pipelineSteps: [
           { id: 1, label: 'Carregamento do folheto', status: 'completed', details: '✓ Imagem recebida.' },
           { id: 2, label: 'Transmissão segura para a IA', status: 'completed', details: '✓ Transmissão de bytes concluída.' },
-          { id: 3, label: 'Análise multimodal Gemini Flash Vision', status: 'completed', details: '✓ Análise multimodal Gemini Flash Vision concluída.' },
+          { id: 3, label: activeModelLabel, status: 'completed', details: `✓ Análise com ${data.modelUsed || activeModel} concluída.` },
           { id: 4, label: 'Extração estruturada e Mapeamento de Coordenadas', status: 'processing', details: 'Mapeando coordenadas espaciais das ofertas...' },
           { id: 5, label: 'Normalização canônica e validação do lote', status: 'pending', details: 'Aguardando...' }
         ]
@@ -340,7 +349,7 @@ export default function DashboardUpload({ onAddFlyerAndOffers, markets = [], upl
           { id: 4, label: 'Extração estruturada e Mapeamento de Coordenadas', status: 'completed', details: `✓ Coordenadas espaciais mapeadas.` },
           { id: 5, label: 'Normalização canônica e validação do lote', status: 'completed', details: `✓ Normalização canônica concluída (${stats.geminiNormalized} de ${data.offers.length} ofertas vinculadas automaticamente).` }
         ],
-        isProcessing: false,
+        status: 'completed',
         uploadedFlyer: data.flyer ? { ...data.flyer, marketId: resolvedMarketId } : null,
         extractedOffers: data.offers.map((o: any) => ({ ...o, marketId: resolvedMarketId })),
         selectedOffer: data.offers.length > 0 ? data.offers[0] : null,
@@ -359,15 +368,19 @@ export default function DashboardUpload({ onAddFlyerAndOffers, markets = [], upl
       });
 
       if (data.flyer) {
-        if (data.flyer.startDate) updateSession({ startDate: data.flyer.startDate });
-        if (data.flyer.endDate) updateSession({ endDate: data.flyer.endDate });
+        const start = data.flyer.startDate && data.flyer.startDate !== 'Invalid Date' ? data.flyer.startDate : '';
+        const end = data.flyer.endDate && data.flyer.endDate !== 'Invalid Date' ? data.flyer.endDate : '';
+        updateSession({
+          startDate: start || end,
+          endDate: end || start
+        });
       }
 
     } catch (err: any) {
       console.error('[Upload Pipeline Error]', err);
       
       updateSession({
-        isProcessing: false,
+        status: 'failed',
         error: err.message || 'Erro de conexão ou timeout na análise inteligente.',
         debugData: {
           originalImage: selectedFile,
@@ -390,8 +403,27 @@ export default function DashboardUpload({ onAddFlyerAndOffers, markets = [], upl
   const handleConfirmAndSave = () => {
     if (!uploadedFlyer) return;
     
+    // Clean and validate dates
+    let finalStart = startDate || uploadedFlyer.startDate;
+    let finalEnd = endDate || uploadedFlyer.endDate;
+
+    if (!finalStart || finalStart === 'Invalid Date') {
+      finalStart = finalEnd && finalEnd !== 'Invalid Date' ? finalEnd : new Date().toISOString().split('T')[0];
+    }
+    if (!finalEnd || finalEnd === 'Invalid Date') {
+      finalEnd = finalStart && finalStart !== 'Invalid Date' ? finalStart : new Date().toISOString().split('T')[0];
+    }
+
+    // Double check single-day equality
+    if (finalStart !== finalEnd && (!finalStart || !finalEnd)) {
+      if (finalStart) finalEnd = finalStart;
+      if (finalEnd) finalStart = finalEnd;
+    }
+
     const flyerToSave: Flyer = {
       ...uploadedFlyer,
+      startDate: finalStart,
+      endDate: finalEnd,
       linkOriginal: originalFile || selectedFile || undefined
     };
 
@@ -401,7 +433,7 @@ export default function DashboardUpload({ onAddFlyerAndOffers, markets = [], upl
     updateSession({
       selectedFile: null,
       originalFile: null,
-      isProcessing: false,
+      status: 'idle',
       marketId: 'm-lopes',
       cityId: 'sao-gotardo',
       startDate: '',
@@ -446,7 +478,8 @@ export default function DashboardUpload({ onAddFlyerAndOffers, markets = [], upl
         logoUrl: ''
       };
 
-      await setDoc(doc(db, 'markets', targetId), payload);
+      await FirestoreRepository.saveMarket(targetId, payload);
+      queryClient.invalidateQueries({ queryKey: ['markets'] });
       
       // Auto-select the newly registered market
       updateSession({
@@ -463,7 +496,7 @@ export default function DashboardUpload({ onAddFlyerAndOffers, markets = [], upl
     }
   };
 
-  const currentMarket = markets.find((m: any) => m.id === marketId) || markets[0] || MARKETS[0];
+  const currentMarket = markets.find((m: any) => m.id === marketId) || markets[0] ;
 
   return (
     <div className="space-y-6">
@@ -479,7 +512,7 @@ export default function DashboardUpload({ onAddFlyerAndOffers, markets = [], upl
 
       <AnimatePresence mode="wait">
         {/* Step 1: File selection & metadata form */}
-        {!isProcessing && !uploadedFlyer && (
+        {status !== 'processing' && !uploadedFlyer && (
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -585,8 +618,15 @@ export default function DashboardUpload({ onAddFlyerAndOffers, markets = [], upl
                     <div className="relative">
                       <input
                         type="date"
-                        value={startDate}
-                        onChange={(e) => updateSession({ startDate: e.target.value })}
+                        value={startDate === 'Invalid Date' ? '' : startDate}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          updateSession({ 
+                            startDate: val,
+                            // If end date is empty or invalid, set it to start date to handle single-day offers nicely
+                            endDate: !endDate || endDate === 'Invalid Date' ? val : endDate
+                          });
+                        }}
                         className="w-full text-xs px-3 py-2 border border-slate-200 rounded-xl outline-none text-slate-600 font-bold"
                       />
                     </div>
@@ -596,8 +636,15 @@ export default function DashboardUpload({ onAddFlyerAndOffers, markets = [], upl
                     <div className="relative">
                       <input
                         type="date"
-                        value={endDate}
-                        onChange={(e) => updateSession({ endDate: e.target.value })}
+                        value={endDate === 'Invalid Date' ? '' : endDate}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          updateSession({ 
+                            endDate: val,
+                            // If start date is empty or invalid, set it to end date to handle single-day offers nicely
+                            startDate: !startDate || startDate === 'Invalid Date' ? val : startDate
+                          });
+                        }}
                         className="w-full text-xs px-3 py-2 border border-slate-200 rounded-xl outline-none text-slate-600 font-bold"
                       />
                     </div>
@@ -641,7 +688,7 @@ export default function DashboardUpload({ onAddFlyerAndOffers, markets = [], upl
         )}
 
         {/* Step 2: Processing progress animation screen */}
-        {isProcessing && (
+        {status === 'processing' && (
           <motion.div
             initial={{ opacity: 0, scale: 0.98 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -684,7 +731,7 @@ export default function DashboardUpload({ onAddFlyerAndOffers, markets = [], upl
                       <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5 transition-colors ${
                         isCompleted 
                           ? 'bg-emerald-500 text-white' 
-                          : isProcessingStep 
+                          : step.status === 'processing'
                           ? 'bg-indigo-600 text-white animate-pulse' 
                           : isFailed 
                           ? 'bg-rose-500 text-white' 
@@ -695,7 +742,7 @@ export default function DashboardUpload({ onAddFlyerAndOffers, markets = [], upl
                       
                       <div className="flex-1 min-w-0">
                         <span className={`text-xs font-bold block transition-colors ${
-                          isProcessingStep 
+                          step.status === 'processing' 
                             ? 'text-indigo-600' 
                             : isCompleted 
                             ? 'text-slate-700' 
@@ -709,7 +756,7 @@ export default function DashboardUpload({ onAddFlyerAndOffers, markets = [], upl
                           <p className={`text-[10px] leading-tight font-medium mt-0.5 ${
                             isFailed 
                               ? 'text-rose-500' 
-                              : isProcessingStep 
+                              : step.status === 'processing'
                               ? 'text-indigo-400' 
                               : 'text-slate-500'
                           }`}>
@@ -728,7 +775,7 @@ export default function DashboardUpload({ onAddFlyerAndOffers, markets = [], upl
               <div className="pt-2">
                 <button
                   onClick={() => {
-                    updateSession({ isProcessing: false, error: null });
+                    updateSession({ status: 'idle', error: null });
                   }}
                   className="px-6 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-rose-200 cursor-pointer"
                 >
@@ -740,398 +787,23 @@ export default function DashboardUpload({ onAddFlyerAndOffers, markets = [], upl
         )}
 
         {/* Step 3: Interactive Spatial Overlay Mapped View */}
-        {!isProcessing && uploadedFlyer && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="space-y-6"
-          >
-            <div className="bg-indigo-600 text-white p-5 rounded-2xl shadow-indigo-100 shadow-lg flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-              <div>
-                <span className="text-[10px] uppercase font-bold bg-indigo-500 px-2 py-0.5 rounded-full border border-indigo-400">
-                  OCR Concluído
-                </span>
-                <h3 className="text-lg font-bold mt-1">Extração Espacial & Normalização Efetuadas!</h3>
-                <p className="text-xs text-indigo-100">Cruzamos posições de preço e textos. Revise as ofertas mapeadas na imagem abaixo.</p>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => {
-                    updateSession({
-                      uploadedFlyer: null,
-                      extractedOffers: [],
-                      selectedOffer: null,
-                      detectedNewMarket: null
-                    });
-                  }}
-                  className="px-3.5 py-1.5 bg-indigo-700 hover:bg-indigo-800 border border-indigo-500 rounded-xl text-xs font-bold transition-all cursor-pointer"
-                >
-                  Descartar
-                </button>
-                <button
-                  onClick={handleConfirmAndSave}
-                  className="px-5 py-1.5 bg-white text-indigo-700 hover:bg-indigo-50 rounded-xl text-xs font-bold transition-all shadow cursor-pointer flex items-center gap-1"
-                >
-                  <CheckCircle2 className="w-3.5 h-3.5 text-indigo-600" /> Salvar Ofertas na Base ({extractedOffers.length})
-                </button>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Left Column: Interactive Image canvas with bounding boxes */}
-              <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4">
-                <h3 className="text-sm font-bold text-slate-800">Mapa de Associação de Preço-Texto</h3>
-                <p className="text-xs text-slate-400">Passe o mouse ou clique nas áreas destacadas para inspecionar os detalhes da extração espacial.</p>
-
-                {/* Canvas stage */}
-                <div className="relative border border-slate-200 rounded-2xl overflow-hidden bg-slate-100 max-w-full flex justify-center">
-                  <div className="relative inline-block max-w-full">
-                    {/* Flyer image */}
-                    <img
-                      src={selectedFile || ''}
-                      alt="Mapa OCR Espacial"
-                      className="max-h-[480px] object-contain block max-w-full"
-                    />
-
-                    {/* Spatial bounding boxes */}
-                    {extractedOffers.map((o) => {
-                      const isSelected = selectedOffer?.id === o.id;
-                      const isLowConfidence = o.confidence < 85;
-
-                      const boxStyle = {
-                        left: `${o.boundingBox.x}%`,
-                        top: `${o.boundingBox.y}%`,
-                        width: `${o.boundingBox.width}%`,
-                        height: `${o.boundingBox.height}%`,
-                      };
-
-                      return (
-                        <div
-                          key={o.id}
-                          style={boxStyle}
-                          onClick={() => updateSession({ selectedOffer: o })}
-                          className={`absolute border-2 cursor-pointer transition-all ${
-                            isSelected
-                              ? 'bg-indigo-400/20 border-indigo-600 ring-2 ring-indigo-300 ring-offset-1 z-10'
-                              : isLowConfidence
-                              ? 'bg-amber-400/10 border-amber-500 hover:bg-amber-300/20'
-                              : 'bg-emerald-400/10 border-emerald-500 hover:bg-emerald-300/20'
-                          }`}
-                          title={`${o.originalName}: R$ ${o.price}`}
-                        >
-                          <span className={`absolute top-0 left-0 text-[8px] text-white font-extrabold px-1 py-0.2 rounded-br shadow-sm ${
-                            isLowConfidence ? 'bg-amber-500' : 'bg-emerald-500'
-                          }`}>
-                            R$ {o.price.toFixed(0)}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Original Image Reference Controls */}
-                <div className="flex flex-wrap items-center justify-between gap-3 mt-4 text-xs bg-slate-50 border border-slate-100 p-3 rounded-xl">
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-slate-500">Imagem Original:</span>
-                    {originalFile ? (
-                      <span className="text-[10px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full font-mono font-bold">
-                        Alta Resolução Disponível (Original)
-                      </span>
-                    ) : (
-                      <span className="text-[10px] text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full font-mono">
-                        Resolução Padrão
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => {
-                        const win = window.open();
-                        if (win) {
-                          win.document.write(`<img src="${originalFile || selectedFile}" style="max-width:100%; border-radius:8px; display:block; margin: 10px auto;" /><title>Imagem do Folheto - Resolução Original</title>`);
-                        }
-                      }}
-                      className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1 text-[11px]"
-                    >
-                      <Eye className="w-3.5 h-3.5 text-indigo-500" /> Abrir em tamanho real
-                    </button>
-                    <button
-                      onClick={() => {
-                        navigator.clipboard.writeText(originalFile || selectedFile || '');
-                        alert('✓ Link/Base64 da imagem original copiado com sucesso!');
-                      }}
-                      className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1 text-[11px]"
-                    >
-                      <Copy className="w-3.5 h-3.5 text-slate-500" /> Copiar Link Original
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Right Column: Matched item detailed sidebar inspection */}
-              <div className="space-y-4">
-                <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
-                  <h3 className="text-sm font-bold text-slate-800 border-b border-slate-50 pb-2">
-                    Inspecionar e Editar Oferta
-                  </h3>
-
-                  {selectedOffer ? (
-                    <div className="space-y-4">
-                      {/* Name Input */}
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-slate-400 uppercase block">Nome do Produto (OCR/IA)</label>
-                        <input
-                          type="text"
-                          value={selectedOffer.originalName}
-                          onChange={(e) => handleUpdateExtractedOffer({ ...selectedOffer, originalName: e.target.value })}
-                          className="w-full px-3 py-1.5 text-xs font-medium bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                        />
-                      </div>
-
-                      {/* Price & Previous Price */}
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-bold text-slate-400 uppercase block">Preço de Oferta</label>
-                          <input
-                            type="number"
-                            step="0.01"
-                            value={selectedOffer.price}
-                            onChange={(e) => handleUpdateExtractedOffer({ ...selectedOffer, price: parseFloat(e.target.value) || 0 })}
-                            className="w-full px-3 py-1.5 text-xs font-black text-slate-800 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-bold text-slate-400 uppercase block">Preço Anterior</label>
-                          <input
-                            type="number"
-                            step="0.01"
-                            value={selectedOffer.previousPrice || ''}
-                            placeholder="Nenhum"
-                            onChange={(e) => handleUpdateExtractedOffer({ ...selectedOffer, previousPrice: e.target.value ? parseFloat(e.target.value) : undefined })}
-                            className="w-full px-3 py-1.5 text-xs font-medium text-slate-500 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                          />
-                        </div>
-                      </div>
-
-                      {/* Unit & Promotion Type */}
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-bold text-slate-400 uppercase block">Unidade</label>
-                          <input
-                            type="text"
-                            value={selectedOffer.unit}
-                            onChange={(e) => handleUpdateExtractedOffer({ ...selectedOffer, unit: e.target.value })}
-                            className="w-full px-3 py-1.5 text-xs font-bold text-slate-600 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-bold text-slate-400 uppercase block">Promoção</label>
-                          <select
-                            value={selectedOffer.promotionType || 'Normal'}
-                            onChange={(e) => handleUpdateExtractedOffer({ ...selectedOffer, promotionType: e.target.value })}
-                            className="w-full px-2 py-1.5 text-xs font-bold text-slate-600 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                          >
-                            <option value="Normal">Normal</option>
-                            <option value="Leve X Pague Y">Leve X Pague Y</option>
-                            <option value="Clube Fidelidade">Clube Fidelidade</option>
-                            <option value="Desconto">Desconto</option>
-                          </select>
-                        </div>
-                      </div>
-
-                      {/* Normalization & Match */}
-                      <div className="p-3 bg-indigo-50/40 border border-indigo-100 rounded-xl space-y-2">
-                        <label className="text-[10px] text-indigo-500 font-bold block uppercase">Associação Canônica</label>
-                        <select
-                          value={selectedOffer.productCanonicalId || ''}
-                          onChange={(e) => handleUpdateExtractedOffer({ ...selectedOffer, productCanonicalId: e.target.value || undefined })}
-                          className="w-full px-2 py-1.5 text-xs font-semibold text-indigo-950 bg-white border border-indigo-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                        >
-                          <option value="">Nenhuma associação canônica</option>
-                          {CANONICAL_PRODUCTS.map(p => (
-                            <option key={p.id} value={p.id}>
-                              {p.brand} {p.name} ({p.weightVolume})
-                            </option>
-                          ))}
-                        </select>
-                        {selectedOffer.productCanonicalId && (
-                          <span className="text-[9px] font-mono text-indigo-600 mt-1 block">
-                            ID Canônico: {selectedOffer.productCanonicalId}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Confidence index indicator */}
-                      <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl space-y-1.5">
-                        <div className="flex justify-between items-center text-[10px] font-bold">
-                          <span className="text-slate-400 uppercase">Confiança de Extração</span>
-                          <span className={selectedOffer.confidence < 85 ? 'text-amber-600' : 'text-emerald-600'}>
-                            {selectedOffer.confidence}%
-                          </span>
-                        </div>
-                        
-                        <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full rounded-full ${selectedOffer.confidence < 85 ? 'bg-amber-500' : 'bg-emerald-500'}`}
-                            style={{ width: `${selectedOffer.confidence}%` }}
-                          ></div>
-                        </div>
-
-                        {selectedOffer.confidence < 85 && (
-                          <div className="flex items-start gap-1.5 text-[9px] text-amber-700 bg-amber-50 p-2 rounded-lg border border-amber-100 mt-2 font-medium">
-                            <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                            Confiança abaixo de 85%. Será enviada ao canal de revisão manual.
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Delete offer button */}
-                      <button
-                        onClick={() => handleDeleteExtractedOffer(selectedOffer.id)}
-                        className="w-full py-2 bg-rose-50 text-rose-600 hover:bg-rose-100 border border-rose-200 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center justify-center gap-1"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" /> Excluir Oferta Extraída
-                      </button>
-                    </div>
-                  ) : (
-                    <p className="text-xs text-slate-400 text-center py-6">Selecione um bloco no folheto para inspecionar.</p>
-                  )}
-                </div>
-
-                {/* Offer list layout */}
-                <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-3">
-                  <div className="flex justify-between items-center">
-                    <h3 className="text-xs font-bold text-slate-800">Tabela de Itens Extraídos ({extractedOffers.length})</h3>
-                    <button
-                      onClick={handleAddManualOffer}
-                      className="px-2 py-1 text-[10px] font-bold bg-indigo-50 text-indigo-600 rounded-lg border border-indigo-100 hover:bg-indigo-100 transition-colors cursor-pointer"
-                    >
-                      + Novo Item
-                    </button>
-                  </div>
-                  <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-                    {extractedOffers.map((o) => (
-                      <button
-                        key={o.id}
-                        onClick={() => updateSession({ selectedOffer: o })}
-                        className={`w-full text-left px-3 py-2 rounded-lg text-xs flex justify-between items-center border transition-all ${
-                          selectedOffer?.id === o.id
-                            ? 'bg-indigo-50 border-indigo-100 font-bold text-indigo-700'
-                            : 'bg-transparent border-transparent text-slate-600 hover:bg-slate-50'
-                        }`}
-                      >
-                        <span className="truncate pr-1">{o.originalName}</span>
-                        <span className="font-extrabold text-slate-800">R$ {o.price.toFixed(2)}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </motion.div>
+        {status !== 'processing' && uploadedFlyer && (
+          <DashboardUploadAudit
+            uploadedFlyer={uploadedFlyer}
+            extractedOffers={extractedOffers}
+            selectedOffer={selectedOffer}
+            originalFile={originalFile}
+            selectedFile={selectedFile}
+            markets={markets}
+            canonicalProducts={canonicalProducts}
+            categories={categories}
+            updateSession={updateSession}
+            handleConfirmAndSave={handleConfirmAndSave}
+            handleAddManualOffer={handleAddManualOffer}
+            debugData={debugData}
+          />
         )}
       </AnimatePresence>
-
-      {/* Debugging Panel for complete transparency */}
-      {debugData && (
-        <div className="mt-8 bg-slate-900 text-slate-100 p-6 rounded-3xl border border-slate-800 shadow-2xl space-y-4">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-            <div className="flex items-center gap-2">
-              <Bug className="w-5 h-5 text-indigo-400 animate-pulse" />
-              <h3 className="text-sm font-sans font-black tracking-wide text-white uppercase flex items-center gap-2">
-                Painel de Depuração de Pipeline OCR & Inteligência Artificial (Diagnóstico Real-time)
-              </h3>
-            </div>
-            <span className="text-[10px] font-mono bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-2.5 py-0.5 rounded-full">
-              Tempo do Pipeline: {debugData.durationSeconds}s
-            </span>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-            {/* Visuals */}
-            <div className="space-y-2">
-              <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block">
-                Visualização e Normalização de Imagem
-              </span>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-1">
-                  <span className="text-[9px] text-slate-500 block">1. Imagem Original</span>
-                  <div className="relative border border-slate-800 rounded-lg overflow-hidden bg-slate-950 aspect-square flex items-center justify-center">
-                    <img src={debugData.originalImage || ''} alt="Original" referrerPolicy="no-referrer" className="max-h-full max-w-full object-contain" />
-                  </div>
-                </div>
-                <div className="space-y-1">
-                  <span className="text-[9px] text-slate-500 block">2. Imagem Pré-Processada (Cinza + Escala 2x)</span>
-                  <div className="relative border border-slate-800 rounded-lg overflow-hidden bg-slate-950 aspect-square flex items-center justify-center">
-                    <img src={debugData.preprocessedImage || debugData.originalImage || ''} alt="Preprocessed" referrerPolicy="no-referrer" className="max-h-full max-w-full object-contain" />
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* OCR Extracted Text */}
-            <div className="space-y-2">
-              <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block">
-                3. Informações da Extração Direta Gemini Vision
-              </span>
-              <div className="border border-slate-800 bg-slate-950 p-3 rounded-xl font-mono text-[10px] text-slate-300 h-44 overflow-y-auto whitespace-pre-wrap">
-                {debugData.rawText || 'Nenhum texto extraído.'}
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 text-xs">
-            {/* Prompt Sent */}
-            <div className="space-y-2">
-              <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block">
-                4. Prompt de Interpretação e Correção OCR Enviado ao Gemini
-              </span>
-              <div className="border border-slate-800 bg-slate-950 p-3 rounded-xl font-mono text-[10px] text-slate-400 h-36 overflow-y-auto whitespace-pre-wrap">
-                {debugData.promptSent || 'Prompt indisponível.'}
-              </div>
-            </div>
-
-            {/* Gemini Response */}
-            <div className="space-y-2">
-              <div className="flex justify-between items-center">
-                <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block">
-                  5. Resposta JSON Bruta Retornada pelo Gemini (Sem tratamento)
-                </span>
-                <span className="text-[9px] text-emerald-400 font-mono flex items-center gap-1">
-                  <Code className="w-3 h-3" /> Parser JSON Integrado Ativo
-                </span>
-              </div>
-              <div className="border border-slate-800 bg-slate-950 p-3 rounded-xl font-mono text-[10px] text-emerald-300 h-36 overflow-y-auto whitespace-pre-wrap">
-                {debugData.rawResponse || 'Nenhuma resposta recebida.'}
-              </div>
-            </div>
-          </div>
-
-          {/* Stats Summary */}
-          {debugData.stats && (
-            <div className="p-3 bg-slate-800/40 border border-slate-800 rounded-xl grid grid-cols-2 md:grid-cols-4 gap-2 text-center text-xs">
-              <div>
-                <span className="text-[10px] text-slate-400 block">Total de Palavras Extraídas</span>
-                <span className="font-mono text-white font-black">{debugData.stats.ocrWordsFound}</span>
-              </div>
-              <div>
-                <span className="text-[10px] text-slate-400 block">Mapeamentos Espaciais</span>
-                <span className="font-mono text-white font-black">{debugData.stats.pricesIdentified}</span>
-              </div>
-              <div>
-                <span className="text-[10px] text-slate-400 block">Ofertas Normalizadas</span>
-                <span className="font-mono text-white font-black">{debugData.finalOffersCount}</span>
-              </div>
-              <div>
-                <span className="text-[10px] text-slate-400 block">Precisão no Catálogo</span>
-                <span className="font-mono text-indigo-400 font-black">{debugData.stats.geminiNormalized} produtos</span>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
 
       {/* Establishment Registration Assistant Modal */}
       <AnimatePresence>

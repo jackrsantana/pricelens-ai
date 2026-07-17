@@ -63,13 +63,15 @@ export default function DashboardAI({ flyers, offers }: Props) {
     setIsLoading(true);
 
     try {
+      const activeModel = localStorage.getItem('gemini_model') || 'gemini-3.5-flash';
       // Post message history and regional grounding dataset to server API
       const response = await fetch('/api/ai-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: [...messages, userMsg].map(m => ({ role: m.role, text: m.text })),
-          pricingData: pricingDataGrounding
+          pricingData: pricingDataGrounding,
+          geminiModel: activeModel
         })
       });
 

@@ -5,11 +5,13 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Flyer, Offer } from './types';
+import { Flyer, Offer, Market, CanonicalProduct, Category } from './types';
 import { useFirebase } from './components/FirebaseProvider';
 import { db, reportFirestoreError, OperationType, sanitizeFlyer, sanitizeOffer } from './lib/firebase';
-import { collection, onSnapshot, doc, setDoc, writeBatch } from 'firebase/firestore';
+import { doc, setDoc, writeBatch } from 'firebase/firestore';
 import { APP_CONFIG } from './config/app';
+import { useFlyers, useOffers, useMarkets, useProducts, useCategories } from './hooks/useQueries';
+import { useQueryClient } from '@tanstack/react-query';
 
 // Import our modular dashboard components
 import DashboardGeneral from './components/DashboardGeneral';
@@ -57,10 +59,17 @@ export default function App() {
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState<boolean>(false);
 
-  // Global pricing database state
-  const [flyers, setFlyers] = useState<Flyer[]>([]);
-  const [offers, setOffers] = useState<Offer[]>([]);
-  const [syncStatus, setSyncStatus] = useState<'connecting' | 'synced' | 'error'>('connecting');
+  // Global pricing database state from React Query
+  const { data: flyers = [], isLoading: loadingFlyers } = useFlyers();
+  const { data: offers = [], isLoading: loadingOffers } = useOffers();
+  const { data: markets = [], isLoading: loadingMarkets } = useMarkets();
+  const { data: canonicalProducts = [], isLoading: loadingProducts } = useProducts();
+  const { data: categories = [], isLoading: loadingCategories } = useCategories();
+  
+  const queryClient = useQueryClient();
+
+  const isDataLoading = loadingFlyers || loadingOffers || loadingMarkets || loadingProducts || loadingCategories || firebaseLoading;
+  const syncStatus = isDataLoading ? 'connecting' : 'synced';
 
   // SPA Routing for /admin
   const [isAdminView, setIsAdminView] = useState<boolean>(
@@ -105,48 +114,6 @@ export default function App() {
     }
   };
 
-  // Real-time synchronization
-  useEffect(() => {
-    if (firebaseLoading) return;
-
-    setSyncStatus('connecting');
-
-    // Subscribe to Flyers
-    const flyersCol = collection(db, 'flyers');
-    const unsubscribeFlyers = onSnapshot(flyersCol, (snapshot) => {
-      const docs: Flyer[] = [];
-      snapshot.forEach((doc) => {
-        docs.push(doc.data() as Flyer);
-      });
-      // Sort newest flyers first
-      docs.sort((a, b) => b.startDate.localeCompare(a.startDate));
-      setFlyers(docs);
-      setSyncStatus('synced');
-    }, (err) => {
-      console.error("Flyer snapshot listener error:", err);
-      setSyncStatus('error');
-      reportFirestoreError(err, OperationType.GET, 'flyers');
-    });
-
-    // Subscribe to Offers
-    const offersCol = collection(db, 'offers');
-    const unsubscribeOffers = onSnapshot(offersCol, (snapshot) => {
-      const docs: Offer[] = [];
-      snapshot.forEach((doc) => {
-        docs.push(doc.data() as Offer);
-      });
-      setOffers(docs);
-    }, (err) => {
-      console.error("Offer snapshot listener error:", err);
-      reportFirestoreError(err, OperationType.GET, 'offers');
-    });
-
-    return () => {
-      unsubscribeFlyers();
-      unsubscribeOffers();
-    };
-  }, [firebaseLoading]);
-
   // Add newly uploaded flyer and offers to database dynamically (persisted to Firestore)
   const handleAddFlyerAndOffers = async (newFlyer: Flyer, newOffers: Offer[]) => {
     if (!user) return;
@@ -165,6 +132,11 @@ export default function App() {
       });
 
       await batch.commit();
+      
+      // Invalidate queries to refresh data
+      queryClient.invalidateQueries({ queryKey: ['flyers'] });
+      queryClient.invalidateQueries({ queryKey: ['offers'] });
+      
       showSuccess("Folheto e ofertas salvos no Firestore!");
     } catch (err) {
       console.error("Erro ao salvar folheto e ofertas no Firestore:", err);
@@ -180,6 +152,8 @@ export default function App() {
       const cleanOffer = sanitizeOffer(updatedOffer);
       const offerRef = doc(db, 'offers', updatedOffer.id);
       await setDoc(offerRef, cleanOffer);
+      
+      queryClient.invalidateQueries({ queryKey: ['offers'] });
     } catch (err) {
       console.error("Erro ao salvar auditoria no Firestore:", err);
       reportFirestoreError(err, OperationType.UPDATE, `offers/${updatedOffer.id}`);
@@ -204,23 +178,23 @@ export default function App() {
   const renderActiveView = () => {
     switch (activeTab) {
       case 'general':
-        return <DashboardGeneral flyers={flyers} offers={offers} onNavigate={(tab) => setActiveTab(tab)} />;
+        return <DashboardGeneral flyers={flyers} offers={offers} markets={markets} canonicalProducts={canonicalProducts} onNavigate={(tab) => setActiveTab(tab)} isLoading={syncStatus === 'connecting'} />;
       case 'offers':
-        return <DashboardSmartOffers flyers={flyers} offers={offers} />;
+        return <DashboardSmartOffers flyers={flyers} offers={offers} canonicalProducts={canonicalProducts} categories={categories} markets={markets} isLoading={syncStatus === 'connecting'} />;
       case 'products':
-        return <DashboardProducts flyers={flyers} offers={offers} />;
+        return <DashboardProducts flyers={flyers} offers={offers} canonicalProducts={canonicalProducts} markets={markets} isLoading={syncStatus === 'connecting'} />;
       case 'markets':
-        return <DashboardMarkets flyers={flyers} offers={offers} />;
+        return <DashboardMarkets flyers={flyers} offers={offers} markets={markets} canonicalProducts={canonicalProducts} categories={categories} isLoading={syncStatus === 'connecting'} />;
       case 'compare':
-        return <DashboardCompare flyers={flyers} offers={offers} />;
+        return <DashboardCompare flyers={flyers} offers={offers} markets={markets} canonicalProducts={canonicalProducts} categories={categories} isLoading={syncStatus === 'connecting'} />;
       case 'basket':
-        return <DashboardBasket flyers={flyers} offers={offers} />;
+        return <DashboardBasket flyers={flyers} offers={offers} canonicalProducts={canonicalProducts} markets={markets} isLoading={syncStatus === 'connecting'} />;
       case 'city':
-        return <DashboardCity flyers={flyers} offers={offers} />;
+        return <DashboardCity flyers={flyers} offers={offers} canonicalProducts={canonicalProducts} categories={categories} isLoading={syncStatus === 'connecting'} />;
       case 'chat':
         return <DashboardAI flyers={flyers} offers={offers} />;
       default:
-        return <DashboardGeneral flyers={flyers} offers={offers} onNavigate={(tab) => setActiveTab(tab)} />;
+        return <DashboardGeneral flyers={flyers} offers={offers} markets={markets} canonicalProducts={canonicalProducts} onNavigate={(tab) => setActiveTab(tab)} />;
     }
   };
 
@@ -261,7 +235,7 @@ export default function App() {
                   Área Administrativa Restrita
                 </h3>
                 <p className="text-xs text-slate-400 leading-relaxed max-w-sm mx-auto">
-                  Por favor, conecte-se com sua credencial administrativa registrada para gerenciar lojas, folhetos e controle técnico.
+                  Por favor, conecte-se com sua credencial administrativa registrada para gerenciar estabelecimentos, folhetos e controle técnico.
                 </p>
               </div>
 
@@ -375,6 +349,7 @@ export default function App() {
           <DashboardAdmin 
             flyers={flyers} 
             offers={offers} 
+            loading={syncStatus === 'connecting'}
             onUpdateOffer={handleUpdateOffer} 
             onAddFlyerAndOffers={handleAddFlyerAndOffers} 
           />

@@ -3,10 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Offer, Flyer, CanonicalProduct } from '../types';
-import { CANONICAL_PRODUCTS, MARKETS, PRODUCT_BASE_PRICES, formatDateToLocal } from '../data';
+import { Offer, Flyer, CanonicalProduct, Market } from '../types';
+import { PRODUCT_BASE_PRICES, formatDateToLocal } from '../data';
 import { APP_CONFIG } from '../config/app';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 import { ShoppingBasket, Search, Plus, Minus, Trash2, TrendingUp, Info, HelpCircle, Store } from 'lucide-react';
@@ -14,6 +14,9 @@ import { ShoppingBasket, Search, Plus, Minus, Trash2, TrendingUp, Info, HelpCirc
 interface Props {
   flyers: Flyer[];
   offers: Offer[];
+  canonicalProducts: CanonicalProduct[];
+  markets: Market[];
+  isLoading?: boolean;
 }
 
 interface BasketItem {
@@ -21,17 +24,41 @@ interface BasketItem {
   quantity: number;
 }
 
-export default function DashboardBasket({ flyers, offers }: Props) {
+export default function DashboardBasket({ flyers, offers, canonicalProducts, markets, isLoading }: Props) {
+  if (isLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center h-96 space-y-4">
+        <div className="w-8 h-8 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
+        <p className="text-slate-500 font-medium">Carregando comparador de cestas...</p>
+      </div>
+    );
+  }
+
+  if (canonicalProducts.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-96 space-y-4">
+        <ShoppingBasket className="w-8 h-8 text-slate-300" />
+        <p className="text-slate-500 font-medium">Nenhum produto disponível para montar cestas.</p>
+      </div>
+    );
+  }
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [basketItems, setBasketItems] = useState<BasketItem[]>([
-    { product: CANONICAL_PRODUCTS.find(p => p.id === 'p-arroz-camil-5k') || CANONICAL_PRODUCTS[0], quantity: 2 },
-    { product: CANONICAL_PRODUCTS.find(p => p.id === 'p-feijao-carioca-1k') || CANONICAL_PRODUCTS[1], quantity: 3 },
-    { product: CANONICAL_PRODUCTS.find(p => p.id === 'p-oleo-soja-900ml') || CANONICAL_PRODUCTS[2], quantity: 2 },
-  ]);
+  const [basketItems, setBasketItems] = useState<BasketItem[]>([]);
+
+  // Initialize basket when canonical products are loaded
+  useEffect(() => {
+    if (canonicalProducts.length > 0 && basketItems.length === 0) {
+      setBasketItems([
+        { product: canonicalProducts.find(p => p.id === 'p-arroz-camil-5k') || canonicalProducts[0], quantity: 2 },
+        { product: canonicalProducts.find(p => p.id === 'p-feijao-carioca-1k') || canonicalProducts[1] || canonicalProducts[0], quantity: 3 },
+        { product: canonicalProducts.find(p => p.id === 'p-oleo-soja-900ml') || canonicalProducts[2] || canonicalProducts[0], quantity: 2 },
+      ]);
+    }
+  }, [canonicalProducts]);
 
   // List of products available to add
   const filteredProducts = useMemo(() => {
-    return CANONICAL_PRODUCTS.filter(p => {
+    return canonicalProducts.filter(p => {
       const alreadyInBasket = basketItems.some(item => item.product.id === p.id);
       if (alreadyInBasket) return false;
 
@@ -42,7 +69,7 @@ export default function DashboardBasket({ flyers, offers }: Props) {
         p.category.toLowerCase().includes(query)
       );
     });
-  }, [searchQuery, basketItems]);
+  }, [searchQuery, basketItems, canonicalProducts]);
 
   const addToBasket = (product: CanonicalProduct) => {
     setBasketItems(prev => [...prev, { product, quantity: 1 }]);
@@ -79,7 +106,7 @@ export default function DashboardBasket({ flyers, offers }: Props) {
     // Get latest offers in active flyers
     const activeOffers = offers.filter(o => activeFlyerIds.includes(o.flyerId));
 
-    return MARKETS.map(market => {
+    return markets.map(market => {
       let totalCost = 0;
       let itemsMatched = 0;
 
@@ -103,7 +130,7 @@ export default function DashboardBasket({ flyers, offers }: Props) {
         completeness: Math.round((itemsMatched / Math.max(1, basketItems.length)) * 100)
       };
     }).sort((a, b) => a.totalCost - b.totalCost); // cheapest basket first
-  }, [offers, activeFlyerIds, basketItems]);
+  }, [offers, activeFlyerIds, basketItems, markets]);
 
   // Compute weekly historical cost of this exact curated basket over the past 12-24 weeks
   const basketHistoryData = useMemo(() => {

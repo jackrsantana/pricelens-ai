@@ -46,6 +46,33 @@ export interface Market {
 }
 
 export type FlyerStatus = 'pending_ocr' | 'processed' | 'error';
+export type JobStatus = 'idle' | 'uploading' | 'processing' | 'completed' | 'failed' | 'cancelled';
+
+export interface PipelineStatusStep {
+  id: number;
+  label: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  details?: string;
+}
+
+export interface UploadSession {
+  selectedFile: string | null;
+  originalFile: string | null;
+  status: JobStatus;
+  marketId: string;
+  cityId: string;
+  startDate: string;
+  endDate: string;
+  observations: string;
+  error: string | null;
+  uploadedFlyer: Flyer | null;
+  extractedOffers: Offer[];
+  selectedOffer: Offer | null;
+  debugData: any;
+  pipelineSteps: PipelineStatusStep[];
+  detectedNewMarket: any;
+  geminiModel: string;
+}
 
 export interface Flyer {
   id: string;
@@ -121,4 +148,20 @@ export interface ChatMessage {
   text: string;
   timestamp: string;
   suggestions?: string[];
+}
+
+export interface AuditLog {
+  id: string;
+  user: string;
+  action: string;
+  details: string;
+  timestamp: string;
+}
+
+export interface Backup {
+  id: string;
+  date: string;
+  size: string;
+  recordCount: number;
+  version: string;
 }

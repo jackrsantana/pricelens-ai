@@ -5,40 +5,44 @@
 
 import React, { useState, useMemo } from 'react';
 import { motion } from 'motion/react';
-import { Offer, Flyer, Market } from '../types';
-import { MARKETS, CANONICAL_PRODUCTS, CATEGORIES, calculateMarketRanking } from '../data';
+import { Offer, Flyer, Market, CanonicalProduct, Category } from '../types';
+import { calculateMarketRanking } from '../data';
 import { ArrowLeftRight, Check, AlertTriangle, Scale, Percent, Landmark, HelpCircle } from 'lucide-react';
 
 interface Props {
   flyers: Flyer[];
   offers: Offer[];
+  markets: Market[];
+  canonicalProducts: CanonicalProduct[];
+  categories: Category[];
+  isLoading?: boolean;
 }
 
-export default function DashboardCompare({ flyers, offers }: Props) {
+export default function DashboardCompare({ flyers, offers, markets, canonicalProducts, categories, isLoading }: Props) {
   const [marketAId, setMarketAId] = useState<string>('m-lopes');
   const [marketBId, setMarketBId] = useState<string>('m-abc');
 
   const marketRankings = useMemo(() => {
-    return calculateMarketRanking(flyers, offers);
-  }, [flyers, offers]);
+    return calculateMarketRanking(flyers, offers, markets);
+  }, [flyers, offers, markets]);
 
   // Extract selected market specs
-  const marketA = useMemo(() => MARKETS.find(m => m.id === marketAId) || MARKETS[0], [marketAId]);
-  const marketB = useMemo(() => MARKETS.find(m => m.id === marketBId) || MARKETS[1], [marketBId]);
+  const marketA = useMemo(() => markets.find(m => m.id === marketAId) || markets[0], [marketAId, markets]);
+  const marketB = useMemo(() => markets.find(m => m.id === marketBId) || markets[1] || markets[0], [marketBId, markets]);
 
   const rankingA = useMemo(() => marketRankings.find(r => r.id === marketAId) || marketRankings[0], [marketRankings, marketAId]);
-  const rankingB = useMemo(() => marketRankings.find(r => r.id === marketBId) || marketRankings[1], [marketRankings, marketBId]);
+  const rankingB = useMemo(() => marketRankings.find(r => r.id === marketBId) || marketRankings[1] || marketRankings[0], [marketRankings, marketBId]);
 
   // Compute category averages for selected markets based on latest offers
   const categoryComparison = useMemo(() => {
     // We group offers by category for Market A and Market B
     const prodMap = new Map<string, string>();
-    CANONICAL_PRODUCTS.forEach(p => prodMap.set(p.id, p.category));
+    canonicalProducts.forEach(p => prodMap.set(p.id, p.category));
 
     const marketAOffers = offers.filter(o => o.marketId === marketAId);
     const marketBOffers = offers.filter(o => o.marketId === marketBId);
 
-    const result = CATEGORIES.map(cat => {
+    const result = categories.map(cat => {
       const aPrices = marketAOffers.filter(o => o.productCanonicalId && prodMap.get(o.productCanonicalId) === cat.id).map(o => o.price);
       const bPrices = marketBOffers.filter(o => o.productCanonicalId && prodMap.get(o.productCanonicalId) === cat.id).map(o => o.price);
 
@@ -64,7 +68,7 @@ export default function DashboardCompare({ flyers, offers }: Props) {
     });
 
     return result;
-  }, [offers, marketAId, marketBId]);
+  }, [offers, marketAId, marketBId, canonicalProducts, categories]);
 
   // Core basic products head-to-head comparison
   const commonProductsComparison = useMemo(() => {
@@ -78,7 +82,7 @@ export default function DashboardCompare({ flyers, offers }: Props) {
     ];
 
     const prodMap = new Map();
-    CANONICAL_PRODUCTS.forEach(p => prodMap.set(p.id, p));
+    canonicalProducts.forEach(p => prodMap.set(p.id, p));
 
     return targetProductIds.map(pid => {
       const prod = prodMap.get(pid);
@@ -109,6 +113,33 @@ export default function DashboardCompare({ flyers, offers }: Props) {
     });
   }, [flyers, offers, marketAId, marketBId]);
 
+  if (isLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center h-96 space-y-4">
+        <div className="w-8 h-8 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
+        <p className="text-slate-500 font-medium">Carregando dados da comparação...</p>
+      </div>
+    );
+  }
+
+  if (markets.length < 2) {
+    return (
+      <div className="flex flex-col items-center justify-center h-96 space-y-4">
+        <ArrowLeftRight className="w-8 h-8 text-slate-300" />
+        <p className="text-slate-500 font-medium">São necessários pelo menos 2 mercados para realizar a comparação.</p>
+      </div>
+    );
+  }
+
+  if (!marketA || !marketB || !rankingA || !rankingB) {
+    return (
+      <div className="flex flex-col items-center justify-center h-96 space-y-4">
+        <ArrowLeftRight className="w-8 h-8 text-slate-300" />
+        <p className="text-slate-500 font-medium">Mercados selecionados não encontrados.</p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -133,7 +164,7 @@ export default function DashboardCompare({ flyers, offers }: Props) {
             }}
             className="w-full text-sm px-4 py-3 bg-slate-50 border-none rounded-2xl outline-none text-slate-700 font-bold"
           >
-            {MARKETS.map(m => (
+            {markets.map(m => (
               <option key={m.id} value={m.id} disabled={m.id === marketBId}>{m.name}</option>
             ))}
           </select>
@@ -154,7 +185,7 @@ export default function DashboardCompare({ flyers, offers }: Props) {
             }}
             className="w-full text-sm px-4 py-3 bg-slate-50 border-none rounded-2xl outline-none text-slate-700 font-bold"
           >
-            {MARKETS.map(m => (
+            {markets.map(m => (
               <option key={m.id} value={m.id} disabled={m.id === marketAId}>{m.name}</option>
             ))}
           </select>

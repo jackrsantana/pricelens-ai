@@ -5,27 +5,47 @@
 
 import React, { useMemo } from 'react';
 import { motion } from 'motion/react';
-import { Offer, Flyer, CanonicalProduct } from '../types';
-import { CATEGORIES, CANONICAL_PRODUCTS, CESTA_BASICA_COMPOSITION, PRODUCT_BASE_PRICES, calculateCategoryInflation, formatDateToLocal } from '../data';
+import { Offer, Flyer, CanonicalProduct, Category } from '../types';
+import { CESTA_BASICA_COMPOSITION, PRODUCT_BASE_PRICES, calculateCategoryInflation, formatDateToLocal } from '../data';
 import { APP_CONFIG } from '../config/app';
 import { MapPin, TrendingUp, TrendingDown, ShoppingBag, Beef, Apple, CupSoda, Sparkles, Heart, Scale, AlertCircle } from 'lucide-react';
 
 interface Props {
   flyers: Flyer[];
   offers: Offer[];
+  canonicalProducts: CanonicalProduct[];
+  categories: Category[];
+  isLoading?: boolean;
 }
 
-export default function DashboardCity({ flyers, offers }: Props) {
+export default function DashboardCity({ flyers, offers, canonicalProducts, categories, isLoading }: Props) {
+  if (isLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center h-96 space-y-4">
+        <div className="w-8 h-8 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
+        <p className="text-slate-500 font-medium">Carregando visão geral da cidade...</p>
+      </div>
+    );
+  }
+
+  if (canonicalProducts.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-96 space-y-4">
+        <MapPin className="w-8 h-8 text-slate-300" />
+        <p className="text-slate-500 font-medium">Nenhum dado disponível para análise da cidade.</p>
+      </div>
+    );
+  }
   // Calculate category inflation for the last period
   const categoryStats = useMemo(() => {
-    return CATEGORIES.map(cat => {
+    return categories.map(cat => {
       const inflationData = calculateCategoryInflation(flyers, offers, cat.id, 45); // comparing recent 45 days vs prior 45 days
       return {
         ...cat,
         ...inflationData
       };
     });
-  }, [flyers, offers]);
+  }, [flyers, offers, categories]);
 
   // Map icon names to components
   const getIcon = (iconName: string) => {
@@ -47,7 +67,7 @@ export default function DashboardCity({ flyers, offers }: Props) {
     const latestOffers = offers.filter(o => latestFlyerIds.includes(o.flyerId));
 
     const prodMap = new Map();
-    CANONICAL_PRODUCTS.forEach(p => prodMap.set(p.id, p));
+    canonicalProducts.forEach(p => prodMap.set(p.id, p));
 
     return CESTA_BASICA_COMPOSITION.map(item => {
       const prod = prodMap.get(item.productId);
@@ -66,7 +86,7 @@ export default function DashboardCity({ flyers, offers }: Props) {
         subtotal: Math.round(avgPrice * item.weight * 100) / 100
       };
     });
-  }, [flyers, offers]);
+  }, [flyers, offers, canonicalProducts]);
 
   const basketTotal = useMemo(() => {
     return basketItemsWithPrices.reduce((sum, item) => sum + item.subtotal, 0);
@@ -75,7 +95,7 @@ export default function DashboardCity({ flyers, offers }: Props) {
   // Calculate top price increases (Altas) and price decreases (Baixas)
   const priceShifts = useMemo(() => {
     const prodMap = new Map<string, CanonicalProduct>();
-    CANONICAL_PRODUCTS.forEach(p => prodMap.set(p.id, p));
+    canonicalProducts.forEach(p => prodMap.set(p.id, p));
 
     // Get active flyers and latest active offers
     const sortedFlyers = [...flyers].sort((a, b) => b.startDate.localeCompare(a.startDate));
@@ -100,7 +120,7 @@ export default function DashboardCity({ flyers, offers }: Props) {
       historicalAverages.set(o.productCanonicalId!, data);
     });
 
-    const shifts = CANONICAL_PRODUCTS.map(p => {
+    const shifts = canonicalProducts.map(p => {
       const currData = currentAverages.get(p.id);
       const histData = historicalAverages.get(p.id);
 
@@ -122,7 +142,7 @@ export default function DashboardCity({ flyers, offers }: Props) {
     const baixas = [...shifts].sort((a, b) => a.changePercent - b.changePercent).slice(0, 3);
 
     return { altas, baixas };
-  }, [offers, flyers]);
+  }, [offers, flyers, canonicalProducts]);
 
   // Seasonality calendar for default city (based on typical High/Low seasons for crops in MG Cerrado)
   const seasonalityData = [
