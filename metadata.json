@@ -1,0 +1,6 @@
+{
+  "name": "PriceLens AI",
+  "description": "Plataforma inteligente para monitoramento, análise e acompanhamento da evolução dos preços utilizando Inteligência Artificial.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

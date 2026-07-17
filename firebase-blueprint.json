@@ -1,0 +1,54 @@
+{
+  "entities": {
+    "Flyer": {
+      "title": "Flyer",
+      "description": "Weekly flyer metadata and processed status.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "The unique document ID for this flyer" },
+        "marketId": { "type": "string", "description": "Reference to the market ID" },
+        "cityName": { "type": "string", "description": "The city name" },
+        "startDate": { "type": "string", "format": "date", "description": "Flyer validity start date" },
+        "endDate": { "type": "string", "format": "date", "description": "Flyer validity end date" },
+        "imageUrl": { "type": "string", "description": "URL or base64 data for the flyer image" },
+        "numPages": { "type": "integer", "description": "Number of pages in the flyer" },
+        "observations": { "type": "string", "description": "Optional notes or observations" },
+        "status": { "type": "string", "enum": ["pending_ocr", "processed", "error"], "description": "Status of OCR processing" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" }
+      },
+      "required": ["id", "marketId", "cityName", "startDate", "endDate", "imageUrl", "numPages", "status", "createdAt"]
+    },
+    "Offer": {
+      "title": "Offer",
+      "description": "Individual product offer extracted from a flyer.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique offer ID" },
+        "flyerId": { "type": "string", "description": "Reference to the parent flyer ID" },
+        "pageNum": { "type": "integer", "description": "Page number in the flyer" },
+        "marketId": { "type": "string", "description": "Reference to the market ID" },
+        "originalName": { "type": "string", "maxLength": 500, "description": "Original text lido pelo OCR" },
+        "price": { "type": "number", "description": "The extracted offer price" },
+        "unit": { "type": "string", "maxLength": 50, "description": "Unit of measurement (e.g. kg, un)" },
+        "confidence": { "type": "number", "description": "OCR extraction confidence index (0-100)" },
+        "boundingBox": { "type": "object", "description": "Coordinates on the flyer canvas" },
+        "productCanonicalId": { "type": "string", "description": "Reference to canonical product ID" },
+        "promotionType": { "type": "string", "description": "Type of promotion if any" },
+        "rules": { "type": "string", "description": "Specific promotion rules" },
+        "status": { "type": "string", "enum": ["valid", "review_pending", "reviewed"], "description": "Validation status" },
+        "previousPrice": { "type": "number", "description": "The previous price before discount if available" }
+      },
+      "required": ["id", "flyerId", "pageNum", "marketId", "originalName", "price", "unit", "confidence", "boundingBox", "status"]
+    }
+  },
+  "firestore": {
+    "flyers/{flyerId}": {
+      "schema": "Flyer",
+      "description": "Collection of flyers"
+    },
+    "offers/{offerId}": {
+      "schema": "Offer",
+      "description": "Collection of extracted offers"
+    }
+  }
+}

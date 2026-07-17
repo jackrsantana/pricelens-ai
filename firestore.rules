@@ -1,0 +1,191 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net & Admin Bypass
+    match /{document=**} {
+      allow read, write: if request.auth != null && request.auth.token.email == 'jack.rsantana@gmail.com';
+    }
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && request.auth.token.email == 'jack.rsantana@gmail.com';
+    }
+
+    function isEmailVerified() {
+      return isAuthenticated();
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128;
+    }
+
+    // Helpers to validate entity shapes and constraints
+    function isValidFlyer(data) {
+      return data.id is string && isValidId(data.id)
+        && data.marketId is string && data.marketId.size() <= 128
+        && data.cityName is string && data.cityName.size() <= 150
+        && data.startDate is string && data.startDate.size() <= 50
+        && data.endDate is string && data.endDate.size() <= 50
+        && data.imageUrl is string && data.imageUrl.size() <= 15728640
+        && (data.numPages is int || data.numPages is float)
+        && data.status in ['pending_ocr', 'processed', 'error']
+        && data.createdAt is string && data.createdAt.size() <= 50
+        && (!data.keys().contains('observations') || (data.observations is string && data.observations.size() <= 1000))
+        && (!data.keys().contains('modelUsed') || (data.modelUsed is string && data.modelUsed.size() <= 100))
+        && (!data.keys().contains('processingTimestamp') || (data.processingTimestamp is string && data.processingTimestamp.size() <= 100))
+        && (!data.keys().contains('originalAiResponse') || (data.originalAiResponse is string && data.originalAiResponse.size() <= 100000))
+        && (!data.keys().contains('linkOriginal') || (data.linkOriginal is string && data.linkOriginal.size() <= 15728640))
+        && data.keys().hasAll(['id', 'marketId', 'cityName', 'startDate', 'endDate', 'imageUrl', 'numPages', 'status', 'createdAt'])
+        && data.keys().hasOnly(['id', 'marketId', 'cityName', 'startDate', 'endDate', 'imageUrl', 'numPages', 'observations', 'status', 'createdAt', 'modelUsed', 'processingTimestamp', 'originalAiResponse', 'linkOriginal']);
+    }
+
+    function isValidOffer(data) {
+      return data.id is string && isValidId(data.id)
+        && data.flyerId is string && data.flyerId.size() <= 128
+        && (data.pageNum is int || data.pageNum is float)
+        && data.marketId is string && data.marketId.size() <= 128
+        && data.originalName is string && data.originalName.size() <= 500
+        && data.price is number && data.price > 0.0
+        && data.unit is string && data.unit.size() <= 50
+        && data.confidence is number
+        && data.boundingBox is map
+        && data.status in ['valid', 'review_pending', 'reviewed']
+        && (!data.keys().contains('productCanonicalId') || (data.productCanonicalId is string && data.productCanonicalId.size() <= 128))
+        && (!data.keys().contains('promotionType') || (data.promotionType is string && data.promotionType.size() <= 100))
+        && (!data.keys().contains('rules') || (data.rules is string && data.rules.size() <= 1000))
+        && (!data.keys().contains('previousPrice') || (data.previousPrice is number || data.previousPrice == null))
+        && (!data.keys().contains('modelUsed') || (data.modelUsed is string && data.modelUsed.size() <= 100))
+        && (!data.keys().contains('processingTimestamp') || (data.processingTimestamp is string && data.processingTimestamp.size() <= 100))
+        && (!data.keys().contains('originalAiResponse') || (data.originalAiResponse is string && data.originalAiResponse.size() <= 100000))
+        && (!data.keys().contains('croppedImageUrl') || (data.croppedImageUrl is string && data.croppedImageUrl.size() <= 1048576))
+        && data.keys().hasAll(['id', 'flyerId', 'pageNum', 'marketId', 'originalName', 'price', 'unit', 'confidence', 'boundingBox', 'status'])
+        && data.keys().hasOnly(['id', 'flyerId', 'pageNum', 'marketId', 'originalName', 'price', 'unit', 'confidence', 'boundingBox', 'productCanonicalId', 'promotionType', 'rules', 'status', 'previousPrice', 'modelUsed', 'processingTimestamp', 'originalAiResponse', 'croppedImageUrl']);
+    }
+
+    function isValidMarket(data) {
+      return data.id is string && isValidId(data.id)
+        && data.name is string && data.name.size() <= 200
+        && data.keys().hasAll(['id', 'name']);
+    }
+
+    function isValidProduct(data) {
+      return data.id is string && isValidId(data.id)
+        && data.name is string && data.name.size() <= 200
+        && data.keys().hasAll(['id', 'name']);
+    }
+
+    // Category Validation helper
+    function isValidCategory(data) {
+      return data.id is string && isValidId(data.id)
+        && data.name is string && data.name.size() <= 100
+        && data.keys().hasAll(['id', 'name']);
+    }
+
+    function isValidBrand(data) {
+      return data.name is string && data.name.size() <= 100
+        && data.keys().hasAll(['name']);
+    }
+
+    function isValidAuditLog(data) {
+      return data.user is string && data.user.size() <= 150
+        && data.action is string && data.action.size() <= 100
+        && data.details is string && data.details.size() <= 2000
+        && data.timestamp is string && data.timestamp.size() <= 50
+        && data.keys().hasAll(['user', 'action', 'details', 'timestamp'])
+        && data.keys().hasOnly(['user', 'action', 'details', 'timestamp']);
+    }
+
+    function isValidBackup(data) {
+      return data.id is string && isValidId(data.id)
+        && data.date is string && data.date.size() <= 50
+        && data.size is string && data.size.size() <= 50
+        && (data.recordCount is int || data.recordCount is float)
+        && data.version is string && data.version.size() <= 20
+        && data.keys().hasAll(['id', 'date', 'size', 'recordCount', 'version'])
+        && data.keys().hasOnly(['id', 'date', 'size', 'recordCount', 'version']);
+    }
+
+    function isValidBackupPayload(data) {
+      return data.payload is string && data.payload.size() <= 1048576
+        && data.keys().hasAll(['payload'])
+        && data.keys().hasOnly(['payload']);
+    }
+
+    // Flyers rules
+    match /flyers/{flyerId} {
+      allow read: if true; // Publicly readable for the price index analysis
+      allow create: if isAdmin() || (isEmailVerified() && isValidId(flyerId) && request.resource.data.id == flyerId && isValidFlyer(request.resource.data));
+      allow update: if isAdmin() || (isEmailVerified() && isValidId(flyerId) && request.resource.data.id == flyerId && isValidFlyer(request.resource.data));
+      allow delete: if isAdmin() || (isEmailVerified() && isValidId(flyerId));
+    }
+
+    // Offers rules
+    match /offers/{offerId} {
+      allow read: if true; // Publicly readable for the price index analysis
+      allow create: if isAdmin() || (isEmailVerified() && isValidId(offerId) && request.resource.data.id == offerId && isValidOffer(request.resource.data));
+      allow update: if isAdmin() || (isEmailVerified() && isValidId(offerId) && request.resource.data.id == offerId && isValidOffer(request.resource.data));
+      allow delete: if isAdmin() || (isEmailVerified() && isValidId(offerId));
+    }
+
+    // Markets rules
+    match /markets/{marketId} {
+      allow read: if true; // Publicly readable for visualization/UI
+      allow create: if isAdmin() || (isEmailVerified() && isValidId(marketId) && request.resource.data.id == marketId && isValidMarket(request.resource.data));
+      allow update: if isAdmin() || (isEmailVerified() && isValidId(marketId) && request.resource.data.id == marketId && isValidMarket(request.resource.data));
+      allow delete: if isAdmin() || (isEmailVerified() && isValidId(marketId));
+    }
+
+    // Canonical Products rules
+    match /canonical_products/{productId} {
+      allow read: if true; // Publicly readable for matching
+      allow create: if isAdmin() || (isEmailVerified() && isValidId(productId) && request.resource.data.id == productId && isValidProduct(request.resource.data));
+      allow update: if isAdmin() || (isEmailVerified() && isValidId(productId) && request.resource.data.id == productId && isValidProduct(request.resource.data));
+      allow delete: if isAdmin() || (isEmailVerified() && isValidId(productId));
+    }
+
+    // Categories rules
+    match /categories/{categoryId} {
+      allow read: if true; // Publicly readable for filtering
+      allow create: if isAdmin() || (isEmailVerified() && isValidId(categoryId) && request.resource.data.id == categoryId && isValidCategory(request.resource.data));
+      allow update: if isAdmin() || (isEmailVerified() && isValidId(categoryId) && request.resource.data.id == categoryId && isValidCategory(request.resource.data));
+      allow delete: if isAdmin() || (isEmailVerified() && isValidId(categoryId));
+    }
+
+    // Brands rules
+    match /brands_list/{brandId} {
+      allow read: if true; // Publicly readable
+      allow create: if isAdmin() || (isEmailVerified() && request.resource.data.name == brandId && isValidBrand(request.resource.data));
+      allow update: if isAdmin() || (isEmailVerified() && request.resource.data.name == brandId && isValidBrand(request.resource.data));
+      allow delete: if isAdmin() || isEmailVerified();
+    }
+
+    // Audit Logs rules
+    match /audit_logs/{logId} {
+      allow read: if isAdmin() || isEmailVerified();
+      allow create: if isAdmin() || (isEmailVerified() && isValidAuditLog(request.resource.data));
+      allow update: if false; // Audit logs are immutable
+      allow delete: if isAdmin() || isEmailVerified();
+    }
+
+    // Backups rules
+    match /backups/{backupId} {
+      allow read: if isAdmin() || isEmailVerified();
+      allow create: if isAdmin() || (isEmailVerified() && isValidId(backupId) && request.resource.data.id == backupId && isValidBackup(request.resource.data));
+      allow update: if isAdmin() || (isEmailVerified() && isValidId(backupId) && request.resource.data.id == backupId && isValidBackup(request.resource.data));
+      allow delete: if isAdmin() || (isEmailVerified() && isValidId(backupId));
+    }
+
+    // Backup Payloads rules
+    match /backup_payloads/{payloadId} {
+      allow read: if isAdmin() || isEmailVerified();
+      allow create: if isAdmin() || (isEmailVerified() && isValidBackupPayload(request.resource.data));
+      allow update: if isAdmin() || (isEmailVerified() && isValidBackupPayload(request.resource.data));
+      allow delete: if isAdmin() || isEmailVerified();
+    }
+  }
+}
