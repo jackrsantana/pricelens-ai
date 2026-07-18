@@ -3,7 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo, useEffect } from 'react';
+
+import React, { useState, useMemo, useEffect, memo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Offer, Flyer, CanonicalProduct, Market } from '../types';
 import { PRODUCT_BASE_PRICES, formatDateToLocal } from '../data';
@@ -24,7 +25,7 @@ interface BasketItem {
   quantity: number;
 }
 
-export default function DashboardBasket({ flyers, offers, canonicalProducts, markets, isLoading }: Props) {
+function DashboardBasket({ flyers, offers, canonicalProducts, markets, isLoading }: Props) {
   if (isLoading) {
     return (
       <div className="flex flex-col items-center justify-center h-96 space-y-4">
@@ -375,3 +376,5 @@ export default function DashboardBasket({ flyers, offers, canonicalProducts, mar
     </div>
   );
 }
+
+export default memo(DashboardBasket);

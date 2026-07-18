@@ -3,13 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo } from 'react';
-import { motion } from 'motion/react';
+
+import React, { useState, useMemo, memo } from 'react';
+import { } from 'motion/react';
 import { Offer, Flyer, CanonicalProduct, Market } from '../types';
 import { formatDateToLocal } from '../data';
 import { APP_CONFIG } from '../config/app';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, Legend, CartesianGrid, BarChart, Bar } from 'recharts';
-import { Search, TrendingUp, TrendingDown, Minus, Info, AlertCircle, Sparkles } from 'lucide-react';
+import { Search, TrendingUp, TrendingDown, Minus, AlertCircle, Sparkles } from 'lucide-react';
 
 interface Props {
   flyers: Flyer[];
@@ -19,7 +20,7 @@ interface Props {
   isLoading?: boolean;
 }
 
-export default function DashboardProducts({ flyers, offers, canonicalProducts, markets, isLoading }: Props) {
+function DashboardProducts({ flyers, offers, canonicalProducts, markets, isLoading }: Props) {
   const [selectedProductId, setSelectedProductId] = useState<string>('p-arroz-camil-5k');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
@@ -253,7 +254,7 @@ export default function DashboardProducts({ flyers, offers, canonicalProducts, m
 
         {/* Right detailed stats and charts */}
         <div className="md:col-span-3 space-y-6">
-          {/* Main Info Card */}
+          {/* Main Card */}
           <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div>
               <span className="text-xs uppercase font-bold px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded-full">
@@ -345,7 +346,7 @@ export default function DashboardProducts({ flyers, offers, canonicalProducts, m
                         <h4 className="text-xs font-bold text-slate-700">{deal.marketName}</h4>
                         <div className="flex gap-1.5 mt-1.5">
                           <span className="text-[9px] font-bold px-1.5 py-0.5 bg-indigo-50 text-indigo-600 rounded">
-                            {deal.promotionType}
+                            {deal.proType}
                           </span>
                           <span className="text-[9px] font-bold px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded">
                             Confiança: {deal.confidence}%
@@ -383,3 +384,5 @@ export default function DashboardProducts({ flyers, offers, canonicalProducts, m
     </div>
   );
 }
+
+export default memo(DashboardProducts);

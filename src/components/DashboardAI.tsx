@@ -3,7 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+
+import React, { useState, useRef, useEffect, useMemo, memo } from 'react';
+import { MetricTracker } from '../lib/instrumentation';
+import { useTrackedRender } from '../hooks/useDiagnostic';
 import { motion, AnimatePresence } from 'motion/react';
 import { ChatMessage, Offer, Flyer } from '../types';
 import { calculateMarketRanking } from '../data';
@@ -15,7 +18,8 @@ interface Props {
   offers: Offer[];
 }
 
-export default function DashboardAI({ flyers, offers }: Props) {
+function DashboardAI({ flyers, offers }: Props) {
+  useTrackedRender('DashboardAI', arguments[0] || {});
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: 'welcome',
@@ -76,6 +80,7 @@ export default function DashboardAI({ flyers, offers }: Props) {
       });
 
       const data = await response.json();
+        MetricTracker.logGeminiCall(activeModel, 800, { context: 'ai-chat' });
 
       const botMsg: ChatMessage = {
         id: `msg-${Date.now()}-bot`,
@@ -230,3 +235,5 @@ export default function DashboardAI({ flyers, offers }: Props) {
     </div>
   );
 }
+
+export default memo(DashboardAI);

@@ -3,7 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useMemo } from 'react';
+
+import React, { useMemo, memo } from 'react';
 import { motion } from 'motion/react';
 import { Offer, Flyer, CanonicalProduct, Category } from '../types';
 import { CESTA_BASICA_COMPOSITION, PRODUCT_BASE_PRICES, calculateCategoryInflation, formatDateToLocal } from '../data';
@@ -18,7 +19,7 @@ interface Props {
   isLoading?: boolean;
 }
 
-export default function DashboardCity({ flyers, offers, canonicalProducts, categories, isLoading }: Props) {
+function DashboardCity({ flyers, offers, canonicalProducts, categories, isLoading }: Props) {
   if (isLoading) {
     return (
       <div className="flex flex-col items-center justify-center h-96 space-y-4">
@@ -362,3 +363,5 @@ export default function DashboardCity({ flyers, offers, canonicalProducts, categ
     </div>
   );
 }
+
+export default memo(DashboardCity);

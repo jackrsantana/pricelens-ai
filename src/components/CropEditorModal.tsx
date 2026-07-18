@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, memo } from 'react';
 import ReactCrop, { Crop, PixelCrop } from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
 import { X, Check, ZoomIn, ZoomOut, Move, Crop as CropIcon } from 'lucide-react';
@@ -10,7 +10,7 @@ interface Props {
   onConfirm: (percentCrop: { x: number, y: number, width: number, height: number }, croppedBase64: string) => void;
 }
 
-export default function CropEditorModal({ imageUrl, initialCrop, onClose, onConfirm }: Props) {
+function CropEditorModal({ imageUrl, initialCrop, onClose, onConfirm }: Props) {
   const [crop, setCrop] = useState<Crop>(
     initialCrop 
       ? { unit: '%', ...initialCrop } 
@@ -124,3 +124,5 @@ export default function CropEditorModal({ imageUrl, initialCrop, onClose, onConf
     </div>
   );
 }
+
+export default memo(CropEditorModal);

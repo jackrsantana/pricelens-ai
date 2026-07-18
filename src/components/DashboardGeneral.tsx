@@ -3,12 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useMemo, useState } from 'react';
+
+import React, { useMemo, useState, memo } from 'react';
 import { motion } from 'motion/react';
 import { Market, Flyer, Offer, CanonicalProduct } from '../types';
-import { calculateBasketHistory, calculateMarketRanking, formatDateToLocal } from '../data';
+import { calculateBasketHistory, calculateMarketRanking, } from '../data';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
-import { Store, Tag, Sparkles, TrendingUp, DollarSign, Eye, BadgeAlert, CheckCircle2 } from 'lucide-react';
+import { Store, Tag, Sparkles, TrendingUp, DollarSign, Eye, BadgeAlert, } from 'lucide-react';
 import { APP_CONFIG } from '../config/app';
 import FlyerOriginModal from './FlyerOriginModal';
 
@@ -21,7 +22,7 @@ interface Props {
   isLoading?: boolean;
 }
 
-export default function DashboardGeneral({ flyers, offers, markets, canonicalProducts, onNavigate, isLoading }: Props) {
+function DashboardGeneral({ flyers, offers, markets, canonicalProducts, onNavigate, isLoading }: Props) {
   if (isLoading) {
     return (
       <div className="flex flex-col items-center justify-center h-96 space-y-4">
@@ -370,3 +371,5 @@ export default function DashboardGeneral({ flyers, offers, markets, canonicalPro
     </div>
   );
 }
+
+export default memo(DashboardGeneral);

@@ -125,6 +125,7 @@ export interface Offer {
   processingTimestamp?: string;
   originalAiResponse?: string;
   croppedImageUrl?: string;
+  createdAt?: string;
 }
 
 export interface CanonicalProduct {
@@ -134,6 +135,7 @@ export interface CanonicalProduct {
   category: string;
   weightVolume: string; // e.g. "5kg", "1L", "350ml"
   unit: string; // "kg", "un", "L", "ml"
+  createdAt?: string;
 }
 
 export interface Category {
@@ -141,6 +143,15 @@ export interface Category {
   name: string;
   icon: string; // lucide icon name
 }
+
+export const STATIC_CATEGORIES: Category[] = [
+  { id: 'mercearia', name: 'Mercearia', icon: 'ShoppingBag' },
+  { id: 'acougue', name: 'Açougue e Carnes', icon: 'Beef' },
+  { id: 'hortifruti', name: 'Hortifruti', icon: 'Apple' },
+  { id: 'bebidas', name: 'Bebidas', icon: 'CupSoda' },
+  { id: 'limpeza', name: 'Limpeza', icon: 'Sparkles' },
+  { id: 'higiene', name: 'Higiene e Beleza', icon: 'Heart' }
+];
 
 export interface ChatMessage {
   id: string;
@@ -156,6 +167,7 @@ export interface AuditLog {
   action: string;
   details: string;
   timestamp: string;
+  createdAt?: string;
 }
 
 export interface Backup {
@@ -164,4 +176,5 @@ export interface Backup {
   size: string;
   recordCount: number;
   version: string;
+  createdAt?: string;
 }

@@ -6,7 +6,16 @@ import App from './App.tsx';
 import './index.css';
 import { FirebaseProvider } from './components/FirebaseProvider.tsx';
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      refetchOnWindowFocus: false, // Prevent aggressive and redundant refetching on window focus
+      refetchOnReconnect: false,   // Disable refetch on internet reconnection
+      staleTime: 1000 * 60 * 15,    // Default staleTime of 15 minutes
+      gcTime: 1000 * 60 * 30,       // Keep unused cache for 30 minutes
+    },
+  },
+});
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

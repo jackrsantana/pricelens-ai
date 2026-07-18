@@ -11,8 +11,8 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword
 } from 'firebase/auth';
-import { auth, testFirestoreConnection } from '../lib/firebase';
-import { Loader2, Database, ShieldAlert, WifiOff, Wifi } from 'lucide-react';
+import { auth } from '../lib/firebase';
+import { ShieldAlert, WifiOff, } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface FirebaseContextType {
@@ -53,11 +53,11 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   useEffect(() => {
     const initFirebase = async () => {
       try {
-        const isConnected = await testFirestoreConnection();
+        const isConnected = navigator.onLine;
         setConnectionSuccess(isConnected);
 
         if (!isConnected) {
-          setError('Não foi possível conectar ao Firestore. Verifique as configurações e regras do projeto.');
+          setError('Sem conexão com o banco de dados. Modo offline ativo.');
         }
       } catch (err) {
         console.error("Firebase init failure:", err);

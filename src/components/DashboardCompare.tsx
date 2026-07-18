@@ -3,7 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo } from 'react';
+
+import React, { useState, useMemo, memo } from 'react';
 import { motion } from 'motion/react';
 import { Offer, Flyer, Market, CanonicalProduct, Category } from '../types';
 import { calculateMarketRanking } from '../data';
@@ -18,7 +19,7 @@ interface Props {
   isLoading?: boolean;
 }
 
-export default function DashboardCompare({ flyers, offers, markets, canonicalProducts, categories, isLoading }: Props) {
+function DashboardCompare({ flyers, offers, markets, canonicalProducts, categories, isLoading }: Props) {
   const [marketAId, setMarketAId] = useState<string>('m-lopes');
   const [marketBId, setMarketBId] = useState<string>('m-abc');
 
@@ -405,3 +406,5 @@ export default function DashboardCompare({ flyers, offers, markets, canonicalPro
     </div>
   );
 }
+
+export default memo(DashboardCompare);

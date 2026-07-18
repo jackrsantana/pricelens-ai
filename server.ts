@@ -472,6 +472,7 @@ app.post('/api/process-flyer', async (req, res) => {
 
       console.log('[Gemini Diagnostic] Realizing Gemini Flash Vision API Call with responseSchema...');
       
+      const startGemini = performance.now();
       const response = await generateContentWithRetry(ai, geminiModel || 'gemini-3.5-flash', {
         contents: [
           {
@@ -856,6 +857,7 @@ app.post('/api/ai-chat', async (req, res) => {
         parts: [{ text: m.text }]
       }));
 
+      const startGemini = performance.now();
       const response = await generateContentWithRetry(ai, geminiModel || 'gemini-3.5-flash', {
         contents: contents,
         systemInstruction: systemPrompt

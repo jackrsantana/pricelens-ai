@@ -3,12 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo } from 'react';
-import { motion } from 'motion/react';
+
+import React, { useState, useMemo, memo } from 'react';
+import { } from 'motion/react';
 import { Offer, Flyer, Market, CanonicalProduct, Category } from '../types';
 import { calculateMarketRanking, formatDateToLocal } from '../data';
 import { APP_CONFIG } from '../config/app';
-import { Store, TrendingUp, Info, Eye, ClipboardCheck, Scale, Award, CheckCircle2 } from 'lucide-react';
+import { Store, TrendingUp, Eye, Scale, } from 'lucide-react';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 import FlyerOriginModal from './FlyerOriginModal';
 
@@ -21,7 +22,7 @@ interface Props {
   isLoading?: boolean;
 }
 
-export default function DashboardMarkets({ flyers, offers, markets, canonicalProducts, categories, isLoading }: Props) {
+function DashboardMarkets({ flyers, offers, markets, canonicalProducts, categories, isLoading }: Props) {
   const [selectedMarketId, setSelectedMarketId] = useState<string>('m-lopes');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
@@ -358,9 +359,9 @@ export default function DashboardMarkets({ flyers, offers, markets, canonicalPro
 
                       <td className="px-4 py-3 text-right">
                         <span className="text-xs font-mono font-bold text-slate-800 block">R$ {o.price.toFixed(2)}</span>
-                        {o.promotionType !== 'Normal' && (
+                        {o.proType !== 'Normal' && (
                           <span className="text-[8px] font-extrabold text-indigo-600 bg-indigo-50 px-1 py-0.5 rounded inline-block mt-0.5">
-                            {o.promotionType}
+                            {o.proType}
                           </span>
                         )}
                       </td>
@@ -402,3 +403,5 @@ export default function DashboardMarkets({ flyers, offers, markets, canonicalPro
     </div>
   );
 }
+
+export default memo(DashboardMarkets);

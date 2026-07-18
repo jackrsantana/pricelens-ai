@@ -3,12 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Flyer, Offer, Market, CanonicalProduct, Category } from './types';
 import { useFirebase } from './components/FirebaseProvider';
-import { db, reportFirestoreError, OperationType, sanitizeFlyer, sanitizeOffer } from './lib/firebase';
-import { doc, setDoc, writeBatch } from 'firebase/firestore';
+import { db, reportFirestoreError, OperationType, sanitizeFlyer, sanitizeOffer, doc, setDoc, writeBatch } from './lib/firebase';
 import { APP_CONFIG } from './config/app';
 import { useFlyers, useOffers, useMarkets, useProducts, useCategories } from './hooks/useQueries';
 import { useQueryClient } from '@tanstack/react-query';
@@ -21,7 +20,6 @@ import DashboardMarkets from './components/DashboardMarkets';
 import DashboardCompare from './components/DashboardCompare';
 import DashboardBasket from './components/DashboardBasket';
 import DashboardCity from './components/DashboardCity';
-import DashboardUpload from './components/DashboardUpload';
 import DashboardAI from './components/DashboardAI';
 import DashboardAdmin from './components/DashboardAdmin';
 
@@ -59,22 +57,23 @@ export default function App() {
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState<boolean>(false);
 
+  const [isAdminView, setIsAdminView] = useState<boolean>(window.location.pathname === "/admin" || window.location.hash === "#/admin");
   // Global pricing database state from React Query
-  const { data: flyers = [], isLoading: loadingFlyers } = useFlyers();
-  const { data: offers = [], isLoading: loadingOffers } = useOffers();
-  const { data: markets = [], isLoading: loadingMarkets } = useMarkets();
-  const { data: canonicalProducts = [], isLoading: loadingProducts } = useProducts();
-  const { data: categories = [], isLoading: loadingCategories } = useCategories();
+  const { data: flyers = [], isLoading: loadingFlyers } = useFlyers({ enabled: !isAdminView });
+  const { data: offers = [], isLoading: loadingOffers } = useOffers({ enabled: !isAdminView });
+  const { data: markets = [], isLoading: loadingMarkets } = useMarkets({ enabled: !isAdminView });
+  const { data: canonicalProducts = [], isLoading: loadingProducts } = useProducts({ enabled: !isAdminView });
+  const { data: categories = [], isLoading: loadingCategories } = useCategories({ enabled: !isAdminView });
   
   const queryClient = useQueryClient();
+  
+
 
   const isDataLoading = loadingFlyers || loadingOffers || loadingMarkets || loadingProducts || loadingCategories || firebaseLoading;
   const syncStatus = isDataLoading ? 'connecting' : 'synced';
 
   // SPA Routing for /admin
-  const [isAdminView, setIsAdminView] = useState<boolean>(
-    window.location.pathname === '/admin' || window.location.hash === '#/admin'
-  );
+
 
   useEffect(() => {
     document.title = `${APP_CONFIG.name} | ${APP_CONFIG.slogan}`;
@@ -115,7 +114,7 @@ export default function App() {
   };
 
   // Add newly uploaded flyer and offers to database dynamically (persisted to Firestore)
-  const handleAddFlyerAndOffers = async (newFlyer: Flyer, newOffers: Offer[]) => {
+  const handleAddFlyerAndOffers = useCallback(async (newFlyer: Flyer, newOffers: Offer[]) => {
     if (!user) return;
 
     try {
@@ -142,10 +141,10 @@ export default function App() {
       console.error("Erro ao salvar folheto e ofertas no Firestore:", err);
       reportFirestoreError(err, OperationType.WRITE, `flyers/${newFlyer.id}`);
     }
-  };
+  }, [user, queryClient]);
 
   // Update audited offer from Review tab (persisted to Firestore)
-  const handleUpdateOffer = async (updatedOffer: Offer) => {
+  const handleUpdateOffer = useCallback(async (updatedOffer: Offer) => {
     if (!user) return;
 
     try {
@@ -158,7 +157,7 @@ export default function App() {
       console.error("Erro ao salvar auditoria no Firestore:", err);
       reportFirestoreError(err, OperationType.UPDATE, `offers/${updatedOffer.id}`);
     }
-  };
+  }, [user, queryClient]);
 
   const showSuccess = (msg: string) => {
     console.log("Success:", msg);
@@ -346,9 +345,7 @@ export default function App() {
 
         {/* Central Dashboard render */}
         <main className="flex-1 p-6 md:p-8 overflow-y-auto">
-          <DashboardAdmin 
-            flyers={flyers} 
-            offers={offers} 
+          <DashboardAdmin  
             loading={syncStatus === 'connecting'}
             onUpdateOffer={handleUpdateOffer} 
             onAddFlyerAndOffers={handleAddFlyerAndOffers} 

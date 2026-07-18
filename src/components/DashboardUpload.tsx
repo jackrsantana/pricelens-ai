@@ -1,38 +1,35 @@
+import React, { useState, useRef, useEffect, memo } from 'react';
+import { MetricTracker } from '../lib/instrumentation';
+import { useTrackedRender } from '../hooks/useDiagnostic';
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useRef, useEffect } from 'react';
+
 import { motion, AnimatePresence } from 'motion/react';
-import { Flyer, Offer, Market, UploadSession } from '../types';
+import { Flyer, Offer, Market, } from '../types';
 import { CITIES } from '../data';
 import { APP_CONFIG } from '../config/app';
-import { db } from '../lib/firebase';
-import { doc } from 'firebase/firestore';
+import { db, doc } from '../lib/firebase';
 import { FirestoreRepository } from '../services/FirestoreRepository';
 import { useQueryClient } from '@tanstack/react-query';
-import { UploadCloud, Calendar, Eye, MapPin, Sparkles, CheckCircle2, ChevronRight, AlertTriangle, FileImage, Image as ImageIcon, Trash2, Bug, Code, RefreshCw, Copy, Plus, Store, X, AlertCircle } from 'lucide-react';
+import { UploadCloud, Sparkles, AlertTriangle, FileImage, Image as ImageIcon, Plus, Store, X, AlertCircle } from 'lucide-react';
 import DashboardUploadAudit from "./DashboardUploadAudit";
 
 interface Props {
   onAddFlyerAndOffers: (flyer: Flyer, offers: Offer[]) => void;
   markets: Market[];
   uploadSession: any;
-  setUploadSession: React.Dispatch<React.SetStateAction<any>>; canonicalProducts?: any[]; categories?: any[];
+  set: React.Dispatch<React.SetStateAction<any>>; canonicalProducts?: any[]; categories?: any[];
 }
 
 // A high-quality base64 mock flyer of "Supermercado Lopes" to allow seamless testing without requiring real uploads
 const DEMO_FLYER_IMAGE = 'https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&q=80&w=800';
 
-interface PipelineStatusStep {
-  id: number;
-  label: string;
-  status: 'pending' | 'processing' | 'completed' | 'failed';
-  details?: string;
-}
 
-export default function DashboardUpload({ onAddFlyerAndOffers, markets = [], uploadSession, setUploadSession, canonicalProducts = [], categories = [] }: Props) {
+function DashboardUpload({ onAddFlyerAndOffers, markets, canonicalProducts, categories, uploadSession, set}: Props) {
+  useTrackedRender('DashboardUpload', arguments[0] || {});
   const queryClient = useQueryClient();
   const {
     selectedFile,
@@ -57,7 +54,7 @@ export default function DashboardUpload({ onAddFlyerAndOffers, markets = [], upl
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const updateSession = (fields: Partial<any>) => {
-    setUploadSession((prev: any) => ({ ...prev, ...fields }));
+    set((prev: any) => ({ ...prev, ...fields }));
   };
 
   // State for the custom market registration form
@@ -275,6 +272,7 @@ export default function DashboardUpload({ onAddFlyerAndOffers, markets = [], upl
         throw new Error(data.error || 'Falha na consolidação inteligente do folheto.');
       }
 
+      if (data.debug?.geminiDuration) { MetricTracker.logGeminiCall(activeModel, data.debug.geminiDuration, { tokens: data.debug?.tokens }); }
       const stats = data.stats || { ocrWordsFound: 0, pricesIdentified: 0, candidatesGrouped: 0, geminiNormalized: 0, geminiUsed: false };
 
       updateSession({
@@ -956,3 +954,5 @@ export default function DashboardUpload({ onAddFlyerAndOffers, markets = [], upl
     </div>
   );
 }
+
+export default memo(DashboardUpload);

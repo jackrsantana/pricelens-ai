@@ -2,13 +2,11 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Flyer, Offer, Market, CanonicalProduct, Category } from '../types';
 import CropEditorModal from "./CropEditorModal";
-import { CropIcon, Scissors } from "lucide-react";
+import { Scissors } from "lucide-react";
 import { 
-  CheckCircle2, AlertTriangle, Eye, Copy, Sparkles, Filter, Search, 
-  ChevronRight, ZoomIn, ZoomOut, Maximize, ArrowRight, Save, Trash2, 
-  RotateCcw, MousePointerClick, History, FileText, ChevronDown, ChevronUp, Map as MapIcon, Database, CheckSquare, ListPlus, ArrowUp, ArrowDown, Activity, Info
-} from 'lucide-react';
-import { APP_CONFIG } from '../config/app';
+  CheckCircle2, Eye, Search, 
+  ZoomIn, ZoomOut, Trash2, 
+  MousePointerClick, History, ChevronDown, ChevronUp, Map as Database, CheckSquare, ArrowUp, ArrowDown, Activity, } from 'lucide-react';
 
 interface Props {
   uploadedFlyer: Flyer;
@@ -28,8 +26,7 @@ interface Props {
 export default function DashboardUploadAudit(props: Props) {
   const {
     uploadedFlyer, extractedOffers, selectedOffer, originalFile, selectedFile,
-    markets, canonicalProducts, categories, updateSession, handleConfirmAndSave,
-    handleAddManualOffer, debugData
+    markets, canonicalProducts, categories, updateSession, handleConfirmAndSave, handleAddManualOffer, debugData
   } = props;
 
   const [search, setSearch] = useState('');
@@ -122,10 +119,10 @@ export default function DashboardUploadAudit(props: Props) {
   const filteredOffers = useMemo(() => {
     return extractedOffers.filter(o => {
       const matchSearch = o.originalName.toLowerCase().includes(search.toLowerCase());
-      const matchFilter = filter === 'all' || 
+      const match= filter === 'all' || 
                          (filter === 'pending' && o.status !== 'reviewed') ||
                          (filter === 'low_confidence' && o.confidence < 85);
-      return matchSearch && matchFilter;
+      return matchSearch && match;
     });
   }, [extractedOffers, search, filter]);
 
@@ -293,10 +290,10 @@ export default function DashboardUploadAudit(props: Props) {
               />
             </div>
             <div className="flex overflow-x-auto gap-1 pb-1 scrollbar-hide">
-              <FilterChip label="Todos" active={filter === 'all'} onClick={() => setFilter('all')} />
-              <FilterChip label="Pendentes" active={filter === 'pending'} onClick={() => setFilter('pending')} />
-              <FilterChip label="Auditados" active={filter === 'audited'} onClick={() => setFilter('audited')} />
-              <FilterChip label="Baixa Conf." active={filter === 'low_confidence'} onClick={() => setFilter('low_confidence')} />
+              <Chip label="Todos" active={filter === 'all'} onClick={() => setFilter('all')} />
+              <Chip label="Pendentes" active={filter === 'pending'} onClick={() => setFilter('pending')} />
+              <Chip label="Auditados" active={filter === 'audited'} onClick={() => setFilter('audited')} />
+              <Chip label="Baixa Conf." active={filter === 'low_confidence'} onClick={() => setFilter('low_confidence')} />
             </div>
           </div>
           <div className="flex-1 overflow-y-auto p-2 space-y-1" ref={listRef}>
@@ -676,7 +673,7 @@ function StatBox({ label, value, color }: { label: string, value: number, color:
   );
 }
 
-function FilterChip({ label, active, onClick }: { label: string, active: boolean, onClick: () => void }) {
+function Chip({ label, active, onClick }: { label: string, active: boolean, onClick: () => void }) {
   return (
     <button 
       onClick={onClick}
